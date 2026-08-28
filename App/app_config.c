@@ -4,6 +4,7 @@
 #include "drv_uart1.h"
 #include "drv_dma.h"
 #include "drv_tim7.h"
+#include "drv_flash.h"
 #include "app_config.h"
 
 
@@ -35,6 +36,9 @@ void app_config_init(void)
 
     /* TIM7 调试定时器：10s周期，中断置标志，主循环中printf打印 */
     TIM7_Debug_Config(10000);
+
+    /* 内部FLASH读写演示：0x08010000写入0x12345678并读回打印 */
+    Flash_Write_Read_Demo();
 
     printf("app_config_init end\r\n");
 }
