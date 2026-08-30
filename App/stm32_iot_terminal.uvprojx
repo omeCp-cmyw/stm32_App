@@ -340,7 +340,7 @@
               <MiscControls>--locale=english</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Core\Include;..\HalLib\Inc;..\Middleware;..\App;..\Module;..\Module\drv_beep;..\Module\drv_dma;..\Module\drv_flash;..\Module\drv_led;..\Module\drv_tim7;..\Module\drv_uart1;..\Core\Device\ST\STM32F4xx\Include</IncludePath>
+              <IncludePath>..\Core\Include;..\HalLib\Inc;..\Middleware;..\Middleware\os_kernal;..\App;..\Driver;..\Driver\drv_systick;..\Driver\drv_beep;..\Driver\drv_dma;..\Driver\drv_flash;..\Driver\drv_led;..\Driver\drv_tim7;..\Driver\drv_uart;..\tools;..\FwUpgrade;..\Core\Device\ST\STM32F4xx\Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -477,42 +477,64 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Module</GroupName>
+          <GroupName>Driver</GroupName>
           <Files>
             <File>
               <FileName>drv_beep.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Module\drv_beep\drv_beep.c</FilePath>
+              <FilePath>..\Driver\drv_beep\drv_beep.c</FilePath>
             </File>
             <File>
               <FileName>drv_dma.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Module\drv_dma\drv_dma.c</FilePath>
+              <FilePath>..\Driver\drv_dma\drv_dma.c</FilePath>
             </File>
             <File>
               <FileName>drv_led.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Module\drv_led\drv_led.c</FilePath>
+              <FilePath>..\Driver\drv_led\drv_led.c</FilePath>
             </File>
             <File>
               <FileName>drv_tim7.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Module\drv_tim7\drv_tim7.c</FilePath>
-            </File>
-            <File>
-              <FileName>drv_uart1.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Module\drv_uart1\drv_uart1.c</FilePath>
+              <FilePath>..\Driver\drv_tim7\drv_tim7.c</FilePath>
             </File>
             <File>
               <FileName>drv_flash.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Module\drv_flash\drv_flash.c</FilePath>
+              <FilePath>..\Driver\drv_flash\drv_flash.c</FilePath>
+            </File>
+            <File>
+              <FileName>drv_systick.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Driver\drv_systick\drv_systick.c</FilePath>
+            </File>
+            <File>
+              <FileName>drv_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Driver\drv_uart\drv_uart.c</FilePath>
+            </File>
+            <File>
+              <FileName>drv_uart_reg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Driver\drv_uart\drv_uart_reg.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
           <GroupName>Middleware</GroupName>
+          <Files>
+            <File>
+              <FileName>os_timer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Middleware\os_kernal\os_timer.c</FilePath>
+            </File>
+            <File>
+              <FileName>os_errman.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Middleware\os_kernal\os_errman.c</FilePath>
+            </File>
+          </Files>
         </Group>
         <Group>
           <GroupName>App</GroupName>
@@ -531,6 +553,41 @@
               <FileName>stm32f4xx_it.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\stm32f4xx_it.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>tools</GroupName>
+          <Files>
+            <File>
+              <FileName>tool_list.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\tools\tool_list.c</FilePath>
+            </File>
+            <File>
+              <FileName>tool_loopbuf.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\tools\tool_loopbuf.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>FwUpgrade</GroupName>
+          <Files>
+            <File>
+              <FileName>fw_upgrade.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FwUpgrade\fw_upgrade.c</FilePath>
+            </File>
+            <File>
+              <FileName>fw_ymodem_recv.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FwUpgrade\fw_ymodem_recv.c</FilePath>
+            </File>
+            <File>
+              <FileName>fw_ymodem_send.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FwUpgrade\fw_ymodem_send.c</FilePath>
             </File>
           </Files>
         </Group>

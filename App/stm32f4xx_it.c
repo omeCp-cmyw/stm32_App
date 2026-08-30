@@ -38,7 +38,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f4xx_it.h"
-#include "drv_uart1.h"
+#include "drv_systick.h"
 
 /** @addtogroup STM32F4xx_HAL_Examples
   * @{
@@ -154,7 +154,7 @@ void PendSV_Handler(void)
   */
 void SysTick_Handler(void)
 {
-    HAL_IncTick();
+    SYSTICK_Handler();
 }
 
 /******************************************************************************/
@@ -179,31 +179,6 @@ void SysTick_Handler(void)
 /*void PPP_IRQHandler(void)
 {
 }*/
-
-/*******************************************************************
-** 函数名	: DMA2_Stream2_IRQHandler
-** 函数描述	: USART1 DMA接收中断（DMA2_Stream2），入口转发给HAL处理，
-**			接收完成/半完成后触发接收回调；缺少本函数时接收中断进
-**			Default_Handler，DMA接收无法工作
-** 参数		: 无
-** 返回		: 无
-********************************************************************/
-void DMA2_Stream2_IRQHandler(void)
-{
-    HAL_DMA_IRQHandler(&hdma_usart1_rx);
-}
-
-/*******************************************************************
-** 函数名	: DMA2_Stream7_IRQHandler
-** 函数描述	: USART1 DMA发送中断（DMA2_Stream7），入口转发给HAL处理，
-**			发送完成后触发发送回调置位发送完成标志
-** 参数		: 无
-** 返回		: 无
-********************************************************************/
-void DMA2_Stream7_IRQHandler(void)
-{
-    HAL_DMA_IRQHandler(&hdma_usart1_tx);
-}
 
 /**
   * @}

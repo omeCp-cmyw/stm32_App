@@ -1,10 +1,14 @@
 #include "stm32f4xx.h"
 #include <stdio.h>
 #include "drv_led.h"
-#include "drv_uart1.h"
 #include "drv_dma.h"
 #include "drv_tim7.h"
 #include "drv_flash.h"
+#include "drv_systick.h"
+#include "drv_uart.h"
+#include "fw_upgrade.h"
+#include "fw_ymodem.h"
+#include "os_include.h"
 #include "app_config.h"
 
 
@@ -25,20 +29,31 @@ void app_config_init(void)
     /* 配置系统时钟为 168 MHz */
     SystemClock_Config();
 
+    /* SysTick配置为10us中断，提供SYSTICK_DelayUs/SYSTICK_DelayMs延时 */
+    SYSTICK_Init();
+
     /* LED 引脚初始化 */
     LED_GPIO_Config();
 
-    /* USART1 + DMA 初始化 */
-    UART1_DMA_Config();
-
     /* 内存到内存 DMA 初始化 */
     MTM_DMA_Init();
+
+    /* 串口驱动初始化：含USART1硬件配置+打开DRV_UART_COM_0，保留DMA+空闲接收 */
+    DRV_UART_InitDrv();
 
     /* TIM7 调试定时器：10s周期，中断置标志，主循环中printf打印 */
     TIM7_Debug_Config(10000);
 
     /* 内部FLASH读写演示：0x08010000写入0x12345678并读回打印 */
-    Flash_Write_Read_Demo();
+    //Flash_Write_Read_Demo();
+
+    /* 内核初始化：错误管理+软件定时器 */
+    OS_InitErrMan();
+    OS_InitTimer();
+
+    /* 固件升级：主控+Ymodem串口通道，Init内开升级窗口主动发'C'等发送方 */
+    FW_UPG_Init();
+    FW_UPG_YM_Init();
 
     printf("app_config_init end\r\n");
 }
