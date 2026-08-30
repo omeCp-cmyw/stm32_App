@@ -340,7 +340,7 @@
               <MiscControls>--locale=english</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Core\Include;..\HalLib\Inc;..\Middleware;..\Middleware\os_kernal;..\App;..\Driver;..\Driver\drv_systick;..\Driver\drv_beep;..\Driver\drv_dma;..\Driver\drv_flash;..\Driver\drv_led;..\Driver\drv_tim7;..\Driver\drv_uart;..\tools;..\FwUpgrade;..\Core\Device\ST\STM32F4xx\Include</IncludePath>
+              <IncludePath>..\Core\Include;..\HalLib\Inc;..\Middleware;..\Middleware\os_kernal;..\App;..\Driver;..\Driver\drv_systick;..\Driver\drv_beep;..\Driver\drv_dma;..\Driver\drv_flash;..\Driver\drv_led;..\Driver\drv_tim7;..\Driver\drv_iwdg;..\Driver\drv_uart;..\tools;..\FwUpgrade;..\Module\esp_wifi;..\Core\Device\ST\STM32F4xx\Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -519,6 +519,11 @@
               <FileType>1</FileType>
               <FilePath>..\Driver\drv_uart\drv_uart_reg.c</FilePath>
             </File>
+            <File>
+              <FileName>drv_iwdg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Driver\drv_iwdg\drv_iwdg.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -588,6 +593,31 @@
               <FileName>fw_ymodem_send.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\FwUpgrade\fw_ymodem_send.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Module</GroupName>
+          <Files>
+            <File>
+              <FileName>esp_wifi_mmi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Module\esp_wifi\esp_wifi_mmi.c</FilePath>
+            </File>
+            <File>
+              <FileName>ntp_mmi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Module\esp_wifi\ntp_mmi.c</FilePath>
+            </File>
+            <File>
+              <FileName>esp_wifi_send.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Module\esp_wifi\esp_wifi_send.c</FilePath>
+            </File>
+            <File>
+              <FileName>esp_wifi_recv.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Module\esp_wifi\esp_wifi_recv.c</FilePath>
             </File>
           </Files>
         </Group>

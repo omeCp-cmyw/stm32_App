@@ -608,9 +608,6 @@ void DRV_UART_RxByteProcess(INT8U com)
     /* 串口3数据回显：整帧从原口发回发送方验证收发链路；
        注意COM_2同时是Ymodem升级通道，回显测试与升级会话不能并存（见main） */
     if (com == DRV_UART_COM_2) {
-        buf[len] = 'A';
-        buf[len+1] = 'B';
-        buf[len+2] = 'C';
         DRV_UART_WriteBlock(com, buf, (INT16U)len+3);
     }
 }

@@ -6,6 +6,8 @@
 #include "drv_flash.h"
 #include "drv_systick.h"
 #include "drv_uart.h"
+#include "drv_iwdg.h"
+#include "esp_wifi_mmi.h"
 #include "fw_upgrade.h"
 #include "fw_ymodem.h"
 #include "os_include.h"
@@ -51,9 +53,15 @@ void app_config_init(void)
     OS_InitErrMan();
     OS_InitTimer();
 
+    /* WiFi模块：PG15复位+AT指令序列，内部用软件定时器，须在OS_InitTimer后 */
+    WIFI_MMI_Init();
+
     /* 固件升级：主控+Ymodem串口通道，Init内开升级窗口主动发'C'等发送方 */
     FW_UPG_Init();
     FW_UPG_YM_Init();
+
+    /* 独立看门狗：3s超时(升级擦写Flash最长阻塞约1s，留足余量)，启动后主循环喂狗 */
+    IWDG_Init(3000);
 
     printf("app_config_init end\r\n");
 }
