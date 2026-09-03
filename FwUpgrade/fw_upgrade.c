@@ -3,7 +3,6 @@
 #include "stm32f4xx_hal.h"
 #include "fw_upgrade.h"
 #include "drv_flash.h"
-#include "drv_uart.h"
 
 /*
 ********************************************************************************

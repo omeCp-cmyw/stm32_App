@@ -1,5 +1,5 @@
 #include "tool_loopbuf.h"
-#include "os_include.h"
+#include "osal.h"
 
 /*
 ********************************************************************************
@@ -36,11 +36,11 @@ void LP_InitLoopBuffer(LOOP_BUF_T *loop, INT8U *memptr, INT32U memsize)
 ********************************************************************/
 void LP_ClearLoopBuffer(LOOP_BUF_T *loop)
 {
-    OS_ENTER_CRITICAL();
+    osal_enter_critical();
     loop->used = 0;
     loop->rptr = loop->bptr;
     loop->wptr = loop->bptr;
-    OS_EXIT_CRITICAL();
+    osal_exit_critical();
 }
 
 /*******************************************************************
@@ -67,9 +67,9 @@ BOOLEAN LP_WriteLoopBuffer(LOOP_BUF_T *loop, INT8U indata)
         return FALSE;
     }
 
-    OS_ENTER_CRITICAL();
+    osal_enter_critical();
     if (loop->used >= loop->memsize) {                                 /* 缓冲满 */
-        OS_EXIT_CRITICAL();
+        osal_exit_critical();
         return FALSE;
     }
 
@@ -79,7 +79,7 @@ BOOLEAN LP_WriteLoopBuffer(LOOP_BUF_T *loop, INT8U indata)
     }
 
     loop->used++;
-    OS_EXIT_CRITICAL();
+    osal_exit_critical();
     return TRUE;
 }
 
@@ -121,10 +121,10 @@ BOOLEAN LP_WriteBlockLoopBuffer(LOOP_BUF_T *loop, INT8U *bptr, INT32U len)
 {
     INT32U i, temp;
 
-    OS_ENTER_CRITICAL();
+    osal_enter_critical();
     temp = loop->memsize - loop->used;
     if (len > temp) {                                                  /* 剩余空间不足 */
-        OS_EXIT_CRITICAL();
+        osal_exit_critical();
         return FALSE;
     }
 
@@ -135,7 +135,7 @@ BOOLEAN LP_WriteBlockLoopBuffer(LOOP_BUF_T *loop, INT8U *bptr, INT32U len)
         }
         loop->used++;
     }
-    OS_EXIT_CRITICAL();
+    osal_exit_critical();
     return TRUE;
 }
 
@@ -176,9 +176,9 @@ INT32S LP_ReadLoopBuffer(LOOP_BUF_T *loop)
 {
     INT32S ret;
 
-    OS_ENTER_CRITICAL();
+    osal_enter_critical();
     if (loop->used == 0) {                                             /* 缓冲空 */
-        OS_EXIT_CRITICAL();
+        osal_exit_critical();
         return -1;
     }
 
@@ -188,7 +188,7 @@ INT32S LP_ReadLoopBuffer(LOOP_BUF_T *loop)
     }
 
     loop->used--;
-    OS_EXIT_CRITICAL();
+    osal_exit_critical();
     return ret;
 }
 
@@ -229,9 +229,9 @@ BOOLEAN LP_ReadBlockLoopBuffer(LOOP_BUF_T *loop, INT8U *bptr, INT32U len)
         return FALSE;
     }
 
-    OS_ENTER_CRITICAL();
+    osal_enter_critical();
     if (len > loop->used) {                                            /* 数据不足 */
-        OS_EXIT_CRITICAL();
+        osal_exit_critical();
         return FALSE;
     }
     for (; len > 0; len--) {
@@ -242,14 +242,14 @@ BOOLEAN LP_ReadBlockLoopBuffer(LOOP_BUF_T *loop, INT8U *bptr, INT32U len)
 
         if (loop->used == 0) {                                         /* 计数异常，复位缓冲 */
             loop->rptr = loop->wptr = loop->bptr;
-            OS_EXIT_CRITICAL();
+            osal_exit_critical();
             return FALSE;
         } else {
             loop->used--;
         }
     }
 
-    OS_EXIT_CRITICAL();
+    osal_exit_critical();
     return TRUE;
 }
 
@@ -304,7 +304,7 @@ BOOLEAN LP_ReadBlockLoopBufferOnly(LOOP_BUF_T *loop, INT8U *bptr, INT32U len)
         return FALSE;
     }
 
-    OS_ENTER_CRITICAL();
+    osal_enter_critical();
     tmploop.memsize = loop->memsize;
     tmploop.used    = loop->used;
     tmploop.bptr    = loop->bptr;
@@ -313,7 +313,7 @@ BOOLEAN LP_ReadBlockLoopBufferOnly(LOOP_BUF_T *loop, INT8U *bptr, INT32U len)
     tmploop.rptr    = loop->rptr;
     loop = &tmploop;
     if (len > loop->used) {                                            /* 数据不足 */
-        OS_EXIT_CRITICAL();
+        osal_exit_critical();
         return FALSE;
     }
     for (; len > 0; len--) {
@@ -324,14 +324,14 @@ BOOLEAN LP_ReadBlockLoopBufferOnly(LOOP_BUF_T *loop, INT8U *bptr, INT32U len)
 
         if (loop->used == 0) {                                         /* 计数异常，复位缓冲 */
             loop->rptr = loop->wptr = loop->bptr;
-            OS_EXIT_CRITICAL();
+            osal_exit_critical();
             return FALSE;
         } else {
             loop->used--;
         }
     }
 
-    OS_EXIT_CRITICAL();
+    osal_exit_critical();
     return TRUE;
 }
 
@@ -388,9 +388,9 @@ INT32U LP_LeftOfLoopBuffer(LOOP_BUF_T *loop)
 {
     INT32U temp;
 
-    OS_ENTER_CRITICAL();
+    osal_enter_critical();
     temp = loop->memsize - loop->used;
-    OS_EXIT_CRITICAL();
+    osal_exit_critical();
 
     return temp;
 }
@@ -420,9 +420,9 @@ INT32U LP_UsedOfLoopBuffer(LOOP_BUF_T *loop)
 {
     INT32U temp;
 
-    OS_ENTER_CRITICAL();
+    osal_enter_critical();
     temp = loop->used;
-    OS_EXIT_CRITICAL();
+    osal_exit_critical();
 
     return temp;
 }

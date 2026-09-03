@@ -1,120 +1,42 @@
 #include "stm32f4xx.h"
 #include <stdio.h>
-#include "drv_led.h"
-#include "drv_dma.h"
-#include "drv_tim7.h"
-#include "drv_flash.h"
-#include "drv_systick.h"
-#include "drv_uart.h"
-#include "drv_iwdg.h"
-#include "esp_wifi_mmi.h"
+#include "osal.h"
+#include "board.h"
+#include "link.h"
 #include "fw_upgrade.h"
-#include "fw_ymodem.h"
-#include "os_include.h"
+#include "ymodem.h"
+#include "drv_iwdg.h"
 #include "app_config.h"
 
 
-static void SystemClock_Config(void);
-
 /*******************************************************************
 ** 函数名	: app_config_init
-** 函数描述	: 系统初始化总入口，依次完成HAL初始化、时钟配置、外设初始化
+** 函数描述	: 应用初始化总入口：板级初始化+OSAL+链路层
+**          : (云平台接入等业务组件由app_gateway编排初始化)
 ** 参数		: 无
 ** 返回		: 无
 ********************************************************************/
 void app_config_init(void)
 {
     printf("app_config_init start\r\n");
-    /* HAL 库初始化（必须在所有 HAL API 调用之前执行） */
-    HAL_Init();
 
-    /* 配置系统时钟为 168 MHz */
-    SystemClock_Config();
+    /* 板级初始化：HAL/时钟/外设驱动/看门狗 */
+    board_init();
 
-    /* SysTick配置为10us中断，提供SYSTICK_DelayUs/SYSTICK_DelayMs延时 */
-    SYSTICK_Init();
+    /* 内核初始化：OSAL软件定时器+错误管理，须在SYSTICK_Init后 */
+    osal_init();
 
-    /* LED 引脚初始化 */
-    LED_GPIO_Config();
+    /* 链路层：ESP8266 AT引擎+TCP链路抽象，内部用软件定时器，须在osal_init后 */
+    link_init();
 
-    /* 内存到内存 DMA 初始化 */
-    MTM_DMA_Init();
-
-    /* 串口驱动初始化：含USART1硬件配置+打开DRV_UART_COM_0，保留DMA+空闲接收 */
-    DRV_UART_InitDrv();
-
-    /* TIM7 调试定时器：10s周期，中断置标志，主循环中printf打印 */
-    TIM7_Debug_Config(10000);
-
-    /* 内部FLASH读写演示：0x08010000写入0x12345678并读回打印 */
-    //Flash_Write_Read_Demo();
-
-    /* 内核初始化：错误管理+软件定时器 */
-    OS_InitErrMan();
-    OS_InitTimer();
-
-    /* WiFi模块：PG15复位+AT指令序列，内部用软件定时器，须在OS_InitTimer后 */
-    WIFI_MMI_Init();
-
-    /* 固件升级：主控+Ymodem串口通道，Init内开升级窗口主动发'C'等发送方 */
+    /* 固件升级：主控+串口Ymodem通道，Init内开升级窗口主动发'C'等发送方 */
     FW_UPG_Init();
     FW_UPG_YM_Init();
 
-    /* 独立看门狗：3s超时(升级擦写Flash最长阻塞约1s，留足余量)，启动后主循环喂狗 */
+    /* 独立看门狗：3s超时(升级擦写Flash最长阻塞约1s，留足余量)，主循环喂狗。
+       对齐备份工程时序：所有初始化完成后最后启动，启动路径不受看门狗约束 */
     IWDG_Init(3000);
+    osal_register_watchdog(IWDG_Feed);
 
     printf("app_config_init end\r\n");
 }
-
-
-/*******************************************************************
-** 函数名	: SystemClock_Config
-** 函数描述	: 系统时钟配置，HSE + PLL，SYSCLK = 168MHz
-** 参数		: 无
-** 返回		: 无
-********************************************************************/
-static void SystemClock_Config(void)
-{
-  RCC_ClkInitTypeDef RCC_ClkInitStruct;
-  RCC_OscInitTypeDef RCC_OscInitStruct;
-
-  /* 使能电源控制时钟 */
-  __HAL_RCC_PWR_CLK_ENABLE();
-  
-  /* 电压调节模式配置：当系统频率低于最大值时，
-     可通过调节电压等级优化功耗，详见数据手册。 */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-  
-  /* 使能 HSE 振荡器，并激活 PLL（以 HSE 作为时钟源） */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 25;
-  RCC_OscInitStruct.PLL.PLLN = 336;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 7;
-  if(HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    while(1) {};
-  }
-  
-  /* 选择 PLL 作为系统时钟源，并配置 HCLK、PCLK1、PCLK2 分频系数 */
-  RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2);
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;  
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;  
-  if(HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
-  {
-    while(1) {};
-  }
-
-  /* STM32F405x/407x/415x/417x Revision Z 设备支持预取功能 */
-  if (HAL_GetREVID() == 0x1001)
-  {
-    /* 使能 Flash 预取缓冲 */
-    __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
-  }
-}
-

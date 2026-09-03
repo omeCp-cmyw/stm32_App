@@ -314,7 +314,7 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>1</Optim>
+            <Optim>3</Optim>
             <oTime>0</oTime>
             <SplitLS>0</SplitLS>
             <OneElfS>1</OneElfS>
@@ -340,7 +340,7 @@
               <MiscControls>--locale=english</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Core\Include;..\HalLib\Inc;..\Middleware;..\Middleware\os_kernal;..\App;..\Driver;..\Driver\drv_systick;..\Driver\drv_beep;..\Driver\drv_dma;..\Driver\drv_flash;..\Driver\drv_led;..\Driver\drv_tim7;..\Driver\drv_iwdg;..\Driver\drv_uart;..\tools;..\FwUpgrade;..\Module\esp_wifi;..\Core\Device\ST\STM32F4xx\Include</IncludePath>
+              <IncludePath>..\Platform\Core\Include;..\Platform\HalLib\Inc;..\OSAL;..\Platform\port;..\App;..\App\board;..\Platform\drv;..\Platform\drv\drv_adc;..\Platform\drv\drv_systick;..\Platform\drv\drv_beep;..\Platform\drv\drv_dma;..\Platform\drv\drv_flash;..\Platform\drv\drv_led;..\Platform\drv\drv_tim7;..\Platform\drv\drv_iwdg;..\Platform\drv\drv_uart;..\tools;..\FwUpgrade;..\Components\link;..\Components\ntp;..\Components\cloud;..\Components\proto\mqtt;..\Components\proto\ymodem;..\Components\utils;..\Components\sensor;..\Config;..\Platform\Core\Device\ST\STM32F4xx\Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -387,7 +387,7 @@
             <File>
               <FileName>startup_stm32f407xx.s</FileName>
               <FileType>2</FileType>
-              <FilePath>..\Core\Device\ST\STM32F4xx\Source\Templates\arm\startup_stm32f407xx.s</FilePath>
+              <FilePath>..\Platform\Core\Device\ST\STM32F4xx\Source\Templates\arm\startup_stm32f407xx.s</FilePath>
             </File>
           </Files>
         </Group>
@@ -397,7 +397,7 @@
             <File>
               <FileName>system_stm32f4xx.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Core\Device\ST\STM32F4xx\Source\Templates\system_stm32f4xx.c</FilePath>
+              <FilePath>..\Platform\Core\Device\ST\STM32F4xx\Source\Templates\system_stm32f4xx.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -407,72 +407,82 @@
             <File>
               <FileName>stm32f4xx_hal.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_dma.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_dma.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_dma.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_eth.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_eth.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_eth.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_gpio.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_gpio.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_gpio.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_rcc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_rcc.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_rcc.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_uart.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_uart.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_uart.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_usart.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_usart.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_usart.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_ll_dma.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_ll_dma.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_ll_dma.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_cortex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_cortex.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_cortex.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_iwdg.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_iwdg.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_iwdg.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_tim.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_tim.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_tim.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_tim_ex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_tim_ex.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_tim_ex.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_flash.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_flash.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_flash.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_flash_ex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\HalLib\Src\stm32f4xx_hal_flash_ex.c</FilePath>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_flash_ex.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f4xx_hal_adc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_adc.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f4xx_hal_adc_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\HalLib\Src\stm32f4xx_hal_adc_ex.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -482,62 +492,72 @@
             <File>
               <FileName>drv_beep.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Driver\drv_beep\drv_beep.c</FilePath>
+              <FilePath>..\Platform\drv\drv_beep\drv_beep.c</FilePath>
             </File>
             <File>
               <FileName>drv_dma.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Driver\drv_dma\drv_dma.c</FilePath>
+              <FilePath>..\Platform\drv\drv_dma\drv_dma.c</FilePath>
             </File>
             <File>
               <FileName>drv_led.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Driver\drv_led\drv_led.c</FilePath>
+              <FilePath>..\Platform\drv\drv_led\drv_led.c</FilePath>
             </File>
             <File>
               <FileName>drv_tim7.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Driver\drv_tim7\drv_tim7.c</FilePath>
+              <FilePath>..\Platform\drv\drv_tim7\drv_tim7.c</FilePath>
             </File>
             <File>
               <FileName>drv_flash.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Driver\drv_flash\drv_flash.c</FilePath>
+              <FilePath>..\Platform\drv\drv_flash\drv_flash.c</FilePath>
             </File>
             <File>
               <FileName>drv_systick.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Driver\drv_systick\drv_systick.c</FilePath>
+              <FilePath>..\Platform\drv\drv_systick\drv_systick.c</FilePath>
             </File>
             <File>
               <FileName>drv_uart.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Driver\drv_uart\drv_uart.c</FilePath>
+              <FilePath>..\Platform\drv\drv_uart\drv_uart.c</FilePath>
             </File>
             <File>
               <FileName>drv_uart_reg.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Driver\drv_uart\drv_uart_reg.c</FilePath>
+              <FilePath>..\Platform\drv\drv_uart\drv_uart_reg.c</FilePath>
             </File>
             <File>
               <FileName>drv_iwdg.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Driver\drv_iwdg\drv_iwdg.c</FilePath>
+              <FilePath>..\Platform\drv\drv_iwdg\drv_iwdg.c</FilePath>
+            </File>
+            <File>
+              <FileName>drv_adc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\drv\drv_adc\drv_adc.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Middleware</GroupName>
+          <GroupName>OSAL</GroupName>
           <Files>
             <File>
-              <FileName>os_timer.c</FileName>
+              <FileName>osal_baremetal.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Middleware\os_kernal\os_timer.c</FilePath>
+              <FilePath>..\OSAL\osal_baremetal.c</FilePath>
             </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Platform/port</GroupName>
+          <Files>
             <File>
-              <FileName>os_errman.c</FileName>
+              <FileName>port_base.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Middleware\os_kernal\os_errman.c</FilePath>
+              <FilePath>..\Platform\port\port_base.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -555,9 +575,24 @@
               <FilePath>.\main.c</FilePath>
             </File>
             <File>
+              <FileName>board_stm32f407.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\board\board_stm32f407.c</FilePath>
+            </File>
+            <File>
               <FileName>stm32f4xx_it.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\stm32f4xx_it.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_devmodel.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\app_devmodel.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_gateway.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\app_gateway.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -584,16 +619,6 @@
               <FileType>1</FileType>
               <FilePath>..\FwUpgrade\fw_upgrade.c</FilePath>
             </File>
-            <File>
-              <FileName>fw_ymodem_recv.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\FwUpgrade\fw_ymodem_recv.c</FilePath>
-            </File>
-            <File>
-              <FileName>fw_ymodem_send.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\FwUpgrade\fw_ymodem_send.c</FilePath>
-            </File>
           </Files>
         </Group>
         <Group>
@@ -602,22 +627,72 @@
             <File>
               <FileName>esp_wifi_mmi.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Module\esp_wifi\esp_wifi_mmi.c</FilePath>
-            </File>
-            <File>
-              <FileName>ntp_mmi.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Module\esp_wifi\ntp_mmi.c</FilePath>
+              <FilePath>..\Components\link\esp_wifi_mmi.c</FilePath>
             </File>
             <File>
               <FileName>esp_wifi_send.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Module\esp_wifi\esp_wifi_send.c</FilePath>
+              <FilePath>..\Components\link\esp_wifi_send.c</FilePath>
             </File>
             <File>
               <FileName>esp_wifi_recv.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Module\esp_wifi\esp_wifi_recv.c</FilePath>
+              <FilePath>..\Components\link\esp_wifi_recv.c</FilePath>
+            </File>
+            <File>
+              <FileName>link_esp_at.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\link\link_esp_at.c</FilePath>
+            </File>
+            <File>
+              <FileName>ntp_mmi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\ntp\ntp_mmi.c</FilePath>
+            </File>
+            <File>
+              <FileName>cloud_onenet.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\cloud\cloud_onenet.c</FilePath>
+            </File>
+            <File>
+              <FileName>onenet_token.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\cloud\onenet_token.c</FilePath>
+            </File>
+            <File>
+              <FileName>mqtt_mmi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\proto\mqtt\mqtt_mmi.c</FilePath>
+            </File>
+            <File>
+              <FileName>md5.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\utils\md5.c</FilePath>
+            </File>
+            <File>
+              <FileName>sensor_core.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\sensor\sensor_core.c</FilePath>
+            </File>
+            <File>
+              <FileName>sensor_sim.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\sensor\sensor_sim.c</FilePath>
+            </File>
+            <File>
+              <FileName>sensor_smoke.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\sensor\sensor_smoke.c</FilePath>
+            </File>
+            <File>
+              <FileName>ymodem_recv.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\proto\ymodem\ymodem_recv.c</FilePath>
+            </File>
+            <File>
+              <FileName>ymodem_send.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\proto\ymodem\ymodem_send.c</FilePath>
             </File>
           </Files>
         </Group>

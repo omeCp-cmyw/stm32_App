@@ -1,0 +1,20 @@
+/*
+-------------------------------I2C通道注册信息-----------------------------------
+    I2C_DEF(_COM_, _ENABLE, _I2C_BASE, _SPEED_KHZ, _GPIO_PORT, _PIN_SCL, _PIN_SCL_AF, _PIN_SDA, _PIN_SDA_AF, _DESC)
+    _COM_:       统一通道编号
+    _ENABLE:     通道使能
+    _I2C_BASE:   I2C寄存器基地址
+    _SPEED_KHZ:  总线速率(KHz)
+    _GPIO_PORT:  GPIO端口基地址
+    _PIN_SCL:    SCL管脚
+    _PIN_SCL_AF: SCL复用号
+    _PIN_SDA:    SDA管脚
+    _PIN_SDA_AF: SDA复用号
+    _DESC:       用途描述（注释用）
+********************************************************************************
+*/
+
+BEGIN_I2C_CFG
+    /* i2c0 传感器总线: I2C1 PB8/PB9，100KHz（SHT30/触摸屏等挂载点） */
+    I2C_DEF(DRV_I2C_COM_0, 1, I2C1, 100, GPIOB, GPIO_PIN_8, GPIO_AF4_I2C1, GPIO_PIN_9, GPIO_AF4_I2C1, "sensor bus")
+END_I2C_CFG

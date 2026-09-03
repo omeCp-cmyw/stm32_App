@@ -1,10 +1,10 @@
 #include <string.h>
-#include "os_errman.h"
+#include "osal.h"
 #include "tool_heapmem.h"
 
 /*
 ********************************************************************************
-* 静态堆内存管理（移植自野火yx_heapmem）：
+* 静态堆内存管理：
 * 内存池按4字节对齐，块头双向链表管理，分配首适配切块，
 * 释放时与前块/后块相邻空闲块合并，抑制碎片。
 ********************************************************************************
@@ -129,11 +129,11 @@ void HEAPMEM_Free(void *sptr, char *file, INT32U line)
     file = file;
     line = line;
 
-    OS_ASSERT((sptr != 0), RETURN_VOID);
+    OSAL_ASSERT((sptr != 0), RETURN_VOID);
     blockptr = (BLOCKHEAD_T *)(((INT8U *)(sptr)) - sizeof(BLOCKHEAD_T));       /* 指向块头起始地址 */
 
-    OS_ASSERT((blockptr->signature == _SIGNATURE), RETURN_VOID);
-    OS_ASSERT((blockptr->allocated == _SIGNATURE), RETURN_VOID);
+    OSAL_ASSERT((blockptr->signature == _SIGNATURE), RETURN_VOID);
+    OSAL_ASSERT((blockptr->allocated == _SIGNATURE), RETURN_VOID);
 
     blockptr->allocated = FALSE;
     s_statictis.occupysize -= blockptr->size;                                  /* 从已使用总量中扣除 */
@@ -171,7 +171,7 @@ void HEAPMEM_Free(void *sptr, char *file, INT32U line)
     }
 
     if ((s_statictis.occupysize == 0) && (s_statictis.blocks != 1)) {
-        OS_ASSERT((0), RETURN_VOID);                                           /* 全释放后块数必须归1，否则链表损坏 */
+        OSAL_ASSERT((0), RETURN_VOID);                                           /* 全释放后块数必须归1，否则链表损坏 */
     }
 }
 

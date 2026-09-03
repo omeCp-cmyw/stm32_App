@@ -1,7 +1,7 @@
 #ifndef TOOL_LOOPBUF_H
 #define TOOL_LOOPBUF_H
 
-#include "os_type.h"
+#include "osal_types.h"
 
 /*
 ********************************************************************************

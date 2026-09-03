@@ -1,11 +1,11 @@
 #ifndef FW_UPGRADE_H
 #define FW_UPGRADE_H
 
-#include "os_type.h"
+#include "osal_types.h"
 
 /*
 ********************************************************************************
-* 固件升级主控（层级参考野火yx_mmi_download）：
+* 固件升级主控：
 * 传输通道把固件数据流经 FW_UPG_WriteData 写入APP备份分区，
 * 下载完成后 FW_UPG_Finish 校验并在Sector4写升级标志，复位交Bootloader搬运。
 ********************************************************************************
@@ -18,7 +18,7 @@ typedef enum {
     FW_UPG_STATE_MAX
 } FW_UPG_STATE_E;
 
-/* 升级结果（参考野火DL_RESULT_E） */
+/* 升级结果 */
 typedef enum {
     FW_UPG_RESULT_NULL = 0,
     FW_UPG_RESULT_SUCCESS,      /* 固件升级成功 */

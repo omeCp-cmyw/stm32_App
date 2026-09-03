@@ -1,7 +1,7 @@
 #ifndef TOOL_LIST_H
 #define TOOL_LIST_H
 
-#include "os_type.h"
+#include "osal_types.h"
 
 /*
 ********************************************************************************
