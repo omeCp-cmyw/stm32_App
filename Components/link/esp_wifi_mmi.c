@@ -31,6 +31,7 @@ typedef struct {
 
 static const WIFI_SEQ_T s_init_seq[] = {
     { WIFI_CMD_AT,          0    },
+    { WIFI_CMD_ATE0,        0    },   /* 关闭回显，防止数据污染 */
     { WIFI_CMD_CWMODE,      0    },
     { WIFI_CMD_CIPMUX,      0    },
     { WIFI_CMD_CWJAP,       1000 },   /* 连路由后等模块拿IP */

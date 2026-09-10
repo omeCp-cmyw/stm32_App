@@ -7,6 +7,7 @@
 #include "gateway_config.h"
 #include "app_devmodel.h"
 #include "app_gateway.h"
+#include "../Components/cloud/ota/ota_mmi.h"
 
 /*
  * 网关业务编排实现：
@@ -57,8 +58,11 @@ void app_gateway_init(void)
     sensor_register(&sensor_sim);
     sensor_register(&sensor_smoke);
 
-    /* 云平台: 接入状态机启动, 属性下发回调到物模型执行器 */
-    cloud_init(&s_cloud_cfg, app_devmodel_cloud_set);
+    /* 云平台: 暂时禁用MQTT，单独测试OTA
+    cloud_init(&s_cloud_cfg, app_devmodel_cloud_set); */
+
+    /* OTA升级: 状态机初始化 */
+    ota_init();
 
     printf("app_gateway init done\r\n");
 }
@@ -75,6 +79,7 @@ void app_gateway_loop(void)
     static uint32_t alarm_tick;
     static uint32_t discnt_tick;
     static uint32_t last_discnt;
+    static uint8_t last_online = 0;
     uint32_t now = SYSTICK_GetMsTick();
 
     /* 传感器采集引擎轮询(到期自动read并写入物模型) */
@@ -93,17 +98,26 @@ void app_gateway_loop(void)
 
     /* 状态指示: 在线绿灯, 离线红灯 */
     if (now - led_tick >= GW_LED_MS) {
+        uint8_t wifi_ready = link_get()->is_ready();
+        
         led_tick = now;
-        if (cloud_is_online()) {
+        if (wifi_ready) {
             LED_GREEN;
         } else {
             LED_RED;
         }
+        
+        /* WiFi连接边沿触发OTA检查（MQTT已禁用） */
+        if (wifi_ready && !last_online) {
+            printf("[gateway] wifi ready, trigger OTA check\r\n");
+            ota_trigger();
+        }
+        last_online = wifi_ready;
     }
 
-    /* 越限告警事件上报(在线时, 防抖避免风暴) */
+    /* 越限告警事件上报(WiFi就绪时, 防抖避免风暴) */
     if (app_devmodel_alarm_pending()) {
-        if (cloud_is_online() && now - alarm_tick >= GW_ALARM_MS) {
+        if (link_get()->is_ready() && now - alarm_tick >= GW_ALARM_MS) {
             alarm_tick = now;
             printf("[gateway] alarm event post\r\n");
             cloud_post_event("limit_alarm",

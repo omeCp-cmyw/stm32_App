@@ -26,6 +26,7 @@
  */
 static const WIFI_AT_CMD_T s_cmd_tbl[WIFI_CMD_NUM] = {
     [WIFI_CMD_AT]           = { "AT\r\n",                                             5000,  2, "OK",    "ERROR" },
+    [WIFI_CMD_ATE0]         = { "ATE0\r\n",                                           5000,  1, "OK",    "ERROR" },
     [WIFI_CMD_CWMODE]       = { "AT+CWMODE=3\r\n",                                     5000,  1, "OK",    "ERROR" },
     [WIFI_CMD_CIPMUX]       = { "AT+CIPMUX=1\r\n",                                     5000,  1, "OK",    "ERROR" },
     [WIFI_CMD_CWJAP]        = { "AT+CWJAP=\""WIFI_SSID"\",\""WIFI_PASS"\"\r\n",      15000, 1, "OK",    "FAIL"  },
@@ -284,12 +285,21 @@ uint8_t WIFI_SendData(uint8_t link, const uint8_t *data, uint16_t len,
 void WIFI_SendAck(const char *feature)
 {
     WIFI_CELL_T *cell;
+    int cnt;
 
     if (feature == 0) {
         return;
     }
+    cnt = LS_LIST_GetNodeNum(&s_waitlist);
     cell = (WIFI_CELL_T *)LS_LIST_GetListHead(&s_waitlist);
     if (cell == 0) {
+        return;
+    }
+    /* 收到ERROR、FAIL或BUSY，统一作为失败处理 */
+    if (strcmp(feature, "ERROR") == 0 || strcmp(feature, "FAIL") == 0 || strcmp(feature, "BUSY") == 0) {
+        printf("[wifi] send failed due to %s\r\n", feature);
+        LS_LIST_DeleListEle(&s_waitlist, (INT8U *)cell);
+        WifiDelCell(cell, WIFI_SEND_ERROR);
         return;
     }
     if (cell->fail != 0 && strcmp(feature, cell->fail) == 0) {

@@ -340,7 +340,7 @@
               <MiscControls>--locale=english</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Platform\Core\Include;..\Platform\HalLib\Inc;..\OSAL;..\Platform\port;..\App;..\App\board;..\Platform\drv;..\Platform\drv\drv_adc;..\Platform\drv\drv_systick;..\Platform\drv\drv_beep;..\Platform\drv\drv_dma;..\Platform\drv\drv_flash;..\Platform\drv\drv_led;..\Platform\drv\drv_tim7;..\Platform\drv\drv_iwdg;..\Platform\drv\drv_uart;..\tools;..\FwUpgrade;..\Components\link;..\Components\ntp;..\Components\cloud;..\Components\proto\mqtt;..\Components\proto\ymodem;..\Components\utils;..\Components\sensor;..\Config;..\Platform\Core\Device\ST\STM32F4xx\Include</IncludePath>
+              <IncludePath>..\Platform\Core\Include;..\Platform\HalLib\Inc;..\OSAL;..\Platform\port;..\App;..\App\board;..\Platform\drv;..\Platform\drv\drv_adc;..\Platform\drv\drv_systick;..\Platform\drv\drv_beep;..\Platform\drv\drv_dma;..\Platform\drv\drv_flash;..\Platform\drv\drv_led;..\Platform\drv\drv_tim7;..\Platform\drv\drv_iwdg;..\Platform\drv\drv_uart;..\tools;..\FwUpgrade;..\Components\link;..\Components\ntp;..\Components\cloud;..\Components\cloud\ota;..\Components\proto\mqtt;..\Components\proto\ymodem;..\Components\utils;..\Components\sensor;..\Config;..\Platform\Core\Device\ST\STM32F4xx\Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -645,6 +645,11 @@
               <FilePath>..\Components\link\link_esp_at.c</FilePath>
             </File>
             <File>
+              <FileName>link_esp_at_ota.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\link\link_esp_at_ota.c</FilePath>
+            </File>
+            <File>
               <FileName>ntp_mmi.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Components\ntp\ntp_mmi.c</FilePath>
@@ -653,6 +658,16 @@
               <FileName>cloud_onenet.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Components\cloud\cloud_onenet.c</FilePath>
+            </File>
+            <File>
+              <FileName>ota_mmi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\cloud\ota\ota_mmi.c</FilePath>
+            </File>
+            <File>
+              <FileName>ota_proto.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\cloud\ota\ota_proto.c</FilePath>
             </File>
             <File>
               <FileName>onenet_token.c</FileName>

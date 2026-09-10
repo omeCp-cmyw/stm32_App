@@ -16,7 +16,7 @@
 /* 接收扫描周期：改用osal_timer_start毫秒接口，10ms */
 #define PERIOD_SCAN_MS      10
 #define LINE_BUF_SIZE   64
-#define IPD_BUF_SIZE    1024        /* +IPD负载缓冲：MQTT帧上限 */
+#define IPD_BUF_SIZE    2560        /* +IPD负载缓冲：MQTT帧上限+OTA HTTP响应 */
 #define IPD_LINK_MAX    5
 
 /* 接收状态 */
@@ -44,16 +44,17 @@ static WIFI_RECV_CLOSE_CB s_close_cb[IPD_LINK_MAX];
 ********************************************************************/
 static void WifiIpdDeliver(void)
 {
+#if 0
+    /* 字符串形式打印IPD负载(可选调试) */
     INT16U i;
     INT8U c;
-
-    /* 字符串形式打印IPD负载(不可打印字符以'.'占位) */
     printf("[wifi] ipd str(%u): ", (unsigned int)s_ipd_cnt);
     for (i = 0; i < s_ipd_cnt; i++) {
         c = s_ipd_buf[i];
         printf("%c", (c >= 0x20 && c <= 0x7e) ? (char)c : '.');
     }
     printf("\r\n");
+#endif
 
     if (s_ipd_link < IPD_LINK_MAX && s_ipd_cb[s_ipd_link] != 0) {
         s_ipd_cb[s_ipd_link](s_ipd_link, s_ipd_buf, s_ipd_cnt);
@@ -170,6 +171,10 @@ static void WifiRecvHandle(INT8U rdata)
                 WIFI_SendAck("SEND OK");
             } else if (strstr(s_line, "SEND FAIL") != 0) {
                 WIFI_SendAck("SEND FAIL");
+            } else if (strstr(s_line, "busy p") != 0) {
+                /* ESP8266忙，标记发送失败 */
+                printf("[wifi] busy p detected\r\n");
+                WIFI_SendAck("BUSY");
             } else if (strstr(s_line, "ERROR") != 0) {
                 WIFI_SendAck("ERROR");
             } else if (strstr(s_line, "FAIL") != 0) {

@@ -10,6 +10,7 @@
 #include "onenet_token.h"
 #include "mqtt_mmi.h"
 #include "product_def.h"
+#include "fw_upgrade.h"
 
 /*
  * cloud_agent的OneNET实现（原onenet_mmi异步状态机）：
@@ -989,8 +990,14 @@ static void OnenetOnlineEnter(void)
 static void OnenetReport(void)
 {
     char topic[ONENET_TOPIC_MAX_LEN];
-    int len = build_property_post(s_json, sizeof(s_json));
+    int len;
 
+    /* OTA升级中跳过属性上报 */
+    if (FW_UPG_GetState() != FW_UPG_STATE_IDLE) {
+        return;
+    }
+    
+    len = build_property_post(s_json, sizeof(s_json));
     if (len > 0) {
         snprintf(topic, sizeof(topic), ONENET_TOPIC_POST,
                  s_cfg.product_id, s_cfg.device_name);
@@ -1227,6 +1234,10 @@ int cloud_report_property(const char *json)
     if (json == 0 || s_step != ON_STEP_ONLINE) {
         return 0;
     }
+    /* OTA升级中跳过属性上报 */
+    if (FW_UPG_GetState() != FW_UPG_STATE_IDLE) {
+        return 0;
+    }
     snprintf(topic, sizeof(topic), ONENET_TOPIC_POST,
              s_cfg.product_id, s_cfg.device_name);
     return OnenetPublish(topic, json, (int)strlen(json));
@@ -1246,6 +1257,10 @@ int cloud_post_event(const char *event_id, const char *json)
     int len;
 
     if (event_id == 0 || json == 0 || s_step != ON_STEP_ONLINE) {
+        return 0;
+    }
+    /* OTA升级中跳过事件上报 */
+    if (FW_UPG_GetState() != FW_UPG_STATE_IDLE) {
         return 0;
     }
     snprintf(topic, sizeof(topic), ONENET_TOPIC_EVENT_POST,

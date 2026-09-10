@@ -28,4 +28,13 @@
 #define GW_REPORT_PROPERTY_MS   10000   /* 属性上报周期 */
 #define GW_REPORT_EVENT_MS      30000   /* 事件上报周期 */
 
+/* ---------- OneNET OTA远程升级 ---------- */
+#define GW_OTA_HOST             "iot-api.heclouds.com"
+#define GW_OTA_S_VERSION        "1.0.0"    /* 软件版本号(上报平台) */
+#define GW_OTA_F_VERSION        "1.0.0"    /* 固件版本号(检查升级用) */
+#define GW_OTA_LINK             2          /* OTA HTTP链路号(0=NTP,1=MQTT,2=OTA) */
+#define GW_OTA_CHUNK_SIZE       2048       /* 分片下载字节数 */
+#define GW_OTA_TIMEOUT_MS       15000      /* 单片下载超时(ms) */
+#define GW_OTA_RETRY            3          /* 单片失败重试次数 */
+
 #endif /* GATEWAY_CONFIG_H */

@@ -12,6 +12,7 @@
 /* AT指令ID（对应wifi_pro的esp_at.h） */
 typedef enum {
     WIFI_CMD_AT = 0,            /* 模块联通测试 */
+    WIFI_CMD_ATE0,              /* 关闭回显 */
     WIFI_CMD_CWMODE,            /* 模式设置：AP+STA */
     WIFI_CMD_CIPMUX,            /* 多连接使能 */
     WIFI_CMD_CWJAP,             /* 连接路由器 */
