@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "drv_uart.h"
+#include "drv_systick.h"
 #include "osal.h"
 #include "esp_wifi_mmi.h"
 #include "esp_wifi_recv.h"
@@ -18,6 +19,7 @@
 #define LINE_BUF_SIZE   64
 #define IPD_BUF_SIZE    2560        /* +IPD负载缓冲：MQTT帧上限+OTA HTTP响应 */
 #define IPD_LINK_MAX    5
+#define IPD_TIMEOUT_MS  500         /* RS_IPD未凑满超时，强制投递防吞AT回显 */
 
 /* 接收状态 */
 typedef enum {
@@ -33,6 +35,7 @@ static INT8U s_ipd_buf[IPD_BUF_SIZE];
 static INT16U s_ipd_cnt;
 static INT16U s_ipd_dlen;       /* 本片负载总长(+IPD头声明) */
 static INT8U s_ipd_link;
+static INT32U s_ipd_tick;       /* 进入RS_IPD的时间戳(ms) */
 static WIFI_RECV_IPD_CB s_ipd_cb[IPD_LINK_MAX];
 static WIFI_RECV_CLOSE_CB s_close_cb[IPD_LINK_MAX];
 
@@ -63,6 +66,7 @@ static void WifiIpdDeliver(void)
                (unsigned int)s_ipd_link, (unsigned int)s_ipd_cnt);
     }
     s_ipd_cnt = 0;
+    s_ipd_dlen = 0;
 }
 
 /*******************************************************************
@@ -76,10 +80,23 @@ static INT8U WifiIpdHeadParse(void)
 {
     char *colon;
     char *p;
+    char *ipd;
     INT32S ipd_len = 0;
     INT8U tail;
 
-    if (s_line_len < 9 || strncmp(s_line, "+IPD,", 5) != 0) {
+    /* 在行缓冲中搜索+IPD头：容忍前缀垃圾字节(ESP8266残留数据)，
+       否则strncmp行首匹配失败会丢整包负载 */
+    ipd = strstr(s_line, "+IPD,");
+    if (ipd == 0) {
+        return 0;
+    }
+    if (ipd != s_line) {
+        INT16U skip = (INT16U)(ipd - s_line);
+        printf("[wifi] ipd resync, drop %u junk bytes\r\n", (unsigned int)skip);
+        memmove(s_line, ipd, s_line_len - skip);
+        s_line_len = (INT8U)(s_line_len - skip);
+    }
+    if (s_line_len < 9) {
         return 0;
     }
     /* 链路号：+IPD,<link>, */
@@ -100,7 +117,8 @@ static INT8U WifiIpdHeadParse(void)
             return 0;
         }
         ipd_len = ipd_len * 10 + (*p - '0');
-        if (ipd_len > 8192) {
+        if (ipd_len > IPD_BUF_SIZE) {
+            /* 声明长度超过缓冲上限：不可能凑满，拒绝防止死锁 */
             return 0;
         }
         p++;
@@ -213,6 +231,7 @@ static void WifiRecvHandle(INT8U rdata)
             WifiIpdDeliver();
         } else {
             s_rs = RS_IPD;
+            s_ipd_tick = SYSTICK_GetMsTick();
         }
     }
 }
@@ -228,6 +247,29 @@ static void WifiRecvTmrProc(void *pdata)
     INT32S recv;
 
     pdata = pdata;
+
+    /* RS_IPD超时保护：+IPD声明长度与实收不符时会吞掉后续AT回显，
+       超时未凑满则强制投递已收数据并恢复行模式 */
+    if (s_rs == RS_IPD && s_ipd_cnt > 0 &&
+        SYSTICK_GetMsTick() - s_ipd_tick >= IPD_TIMEOUT_MS) {
+        printf("[wifi] ipd timeout: got %u/%u, force deliver\r\n",
+               (unsigned int)s_ipd_cnt, (unsigned int)s_ipd_dlen);
+        /* 诊断：打印超时投递数据前32字节(疑似垃圾区)和尾16字节(疑似真实区) */
+        {
+            INT16U i, n = s_ipd_cnt;
+            printf("[wifi] ipd head:");
+            for (i = 0; i < n && i < 32; i++) {
+                printf(" %02X", s_ipd_buf[i]);
+            }
+            printf("\r\n[wifi] ipd tail:");
+            for (i = (n > 16) ? n - 16 : 0; i < n; i++) {
+                printf(" %02X", s_ipd_buf[i]);
+            }
+            printf("\r\n");
+        }
+        WifiIpdDeliver();
+        s_rs = RS_LINE;
+    }
 
     for (;;) {
         if ((recv = DRV_UART_ReadChar(WIFI_COM)) == -1) {

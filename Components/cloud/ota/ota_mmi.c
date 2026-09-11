@@ -56,6 +56,8 @@ typedef struct {
     int resp_body_offset;       /* 响应体偏移 */
     int resp_body_len;          /* 响应体长度 */
     int content_length;         /* Content-Length */
+    int cr_start;               /* Content-Range起始字节, -1无 */
+    int cr_end;                 /* Content-Range结束字节 */
     
     /* MD5校验 */
     MD5_CTX md5_ctx;            /* MD5上下文 */
@@ -180,6 +182,22 @@ static int OtaParseHttpResponse(void)
         while (*p == ' ') p++;
         s_ota.content_length = atoi(p);
     }
+
+    /* 解析Content-Range: bytes N-M/T，校验分片字节范围 */
+    s_ota.cr_start = -1;
+    s_ota.cr_end = -1;
+    p = strstr(s_ota.resp_buf, "Content-Range:");
+    if (p != NULL) {
+        p = strstr(p, "bytes ");
+        if (p != NULL) {
+            p += 6; /* 跳过"bytes " */
+            s_ota.cr_start = atoi(p);
+            p = strchr(p, '-');
+            if (p != NULL) {
+                s_ota.cr_end = atoi(p + 1);
+            }
+        }
+    }
     
     return 0;
 }
@@ -221,7 +239,21 @@ static void OtaLinkEvCb(link_event_t ev, const uint8_t *data, int len)
         break;
 
     case LINK_EV_DATA:
-        /* 累积HTTP响应数据 */
+        /* 累积HTTP响应数据，按Content-Length期望长度截断：
+           ESP8266 +IPD分包声明长度可能错误(实测声明1280实际12)，
+           超时强制投递=垃圾前缀+真实后缀(实测垃圾恒254字节)，
+           投递超量时取尾部剩余字节，跳过垃圾前缀 */
+        if (s_ota.resp_body_offset > 0) {
+            int need = s_ota.resp_body_offset + s_ota.content_length;
+            if (s_ota.resp_len + len > need) {
+                int take = need - s_ota.resp_len;
+                if (take <= 0) {
+                    break; /* 已收满期望字节，多余垃圾丢弃 */
+                }
+                data += len - take; /* 跳过垃圾前缀 */
+                len = take;
+            }
+        }
         if (s_ota.resp_len + len <= (int)sizeof(s_ota.resp_buf)) {
             memcpy(s_ota.resp_buf + s_ota.resp_len, data, len);
             s_ota.resp_len += len;
@@ -233,7 +265,13 @@ static void OtaLinkEvCb(link_event_t ev, const uint8_t *data, int len)
         printf("[ota] link closed\r\n");
         s_ota.link_open = 0;
         s_ota.tx_busy = 0;
-        if (s_ota.step != OTA_STEP_IDLE) {
+        if (s_ota.step == OTA_STEP_FINISH) {
+            /* 升级流程已完成、主动关闭链路：CLOSED事件异步到达时
+               step已是FINISH，此处直接复位，不能走OtaReset打回IDLE，
+               否则OTA_STEP_FINISH分支永远无法执行 */
+            FW_UPG_Finish();
+            /* 不会返回，FW_UPG_Finish内部写标志后NVIC_SystemReset */
+        } else if (s_ota.step != OTA_STEP_IDLE) {
             /* 非正常关闭，重置状态机 */
             OtaReset();
         }
@@ -492,11 +530,12 @@ static void OtaTmrProc(void *pdata)
                    s_ota.resp_body_offset == 0) {
             /* 首次收到HTTP头，解析Content-Length */
             OtaParseHttpResponse();
+            printf("[ota] header: offset=%d, content_length=%d, resp_len=%d\r\n",
+                   s_ota.resp_body_offset, s_ota.content_length, s_ota.resp_len);
             
-            /* 检查HTTP状态码 */
-            if (strstr(s_ota.resp_buf, "200 OK") == NULL && 
-                strstr(s_ota.resp_buf, "206 Partial Content") == NULL) {
-                printf("[ota] download error: %s\r\n", s_ota.resp_buf);
+            /* 检查HTTP状态码：分片下载必须返回206 */
+            if (strstr(s_ota.resp_buf, "206 Partial Content") == NULL) {
+                printf("[ota] download error: expect 206, got %s\r\n", s_ota.resp_buf);
                 FW_UPG_StopUpdate();
                 OtaCloseLink();
                 OtaReset();
@@ -507,18 +546,32 @@ static void OtaTmrProc(void *pdata)
                    s_ota.resp_len >= s_ota.resp_body_offset + s_ota.content_length) {
             /* 收够Content-Length指定的数据量 */
             s_ota.resp_body_len = s_ota.content_length;
-            
-            /* 检查HTTP状态码 */
-            if (strstr(s_ota.resp_buf, "200 OK") == NULL && 
-                strstr(s_ota.resp_buf, "206 Partial Content") == NULL) {
-                printf("[ota] download error: %s\r\n", s_ota.resp_buf);
+
+            /* 检查HTTP状态码：分片下载必须返回206 */
+            if (strstr(s_ota.resp_buf, "206 Partial Content") == NULL) {
+                printf("[ota] download error: expect 206, got %s\r\n", s_ota.resp_buf);
                 FW_UPG_StopUpdate();
                 OtaCloseLink();
                 OtaReset();
                 break;
             }
-            
+
+            /* body按Content-Length取数：+IPD分包声明长度不可信，
+               超时投递可能混入垃圾字节，真实数据连续在前部，
+               超出期望的丢弃(移植自wifi_pro dl_feed截断策略) */
+
             /* 写入固件数据 */
+            printf("[ota] body: offset=%d, len=%d, resp_len=%d\r\n",
+                   s_ota.resp_body_offset, s_ota.resp_body_len, s_ota.resp_len);
+            if (s_ota.recv_size == 0 && s_ota.resp_body_len >= 32) {
+                /* 诊断：打印第一片body前32字节，与固件bin开头对比定位错位模式 */
+                int i;
+                printf("[ota] body head:");
+                for (i = 0; i < 32; i++) {
+                    printf(" %02X", (uint8_t)s_ota.resp_buf[s_ota.resp_body_offset + i]);
+                }
+                printf("\r\n");
+            }
             if (s_ota.resp_body_len > 0) {
                 if (!FW_UPG_WriteData((uint8_t *)s_ota.resp_buf + s_ota.resp_body_offset,
                                       s_ota.resp_body_len)) {
@@ -530,6 +583,9 @@ static void OtaTmrProc(void *pdata)
                 }
                 
                 /* 更新MD5 */
+                printf("[ota] md5 update: data@%p, len=%d\r\n",
+                       s_ota.resp_buf + s_ota.resp_body_offset,
+                       s_ota.resp_body_len);
                 MD5_Update(&s_ota.md5_ctx, 
                           s_ota.resp_buf + s_ota.resp_body_offset,
                           s_ota.resp_body_len);
@@ -701,7 +757,14 @@ static void OtaTmrProc(void *pdata)
     case OTA_STEP_DOWNLOAD_FAIL_WAIT:
         /* 下载失败后等待500ms再重试，让ESP8266稳定 */
         if (++s_ota.poll >= 50) {
-            printf("[ota] download fail wait done, retry\r\n");
+            if (++s_ota.retry >= GW_OTA_RETRY) {
+                printf("[ota] chunk retry exhausted, abort\r\n");
+                FW_UPG_StopUpdate();
+                OtaCloseLink();
+                OtaReset();
+                break;
+            }
+            printf("[ota] download fail wait done, retry %d\r\n", s_ota.retry);
             if (OtaSendRequest(s_ota.tx_buf, s_ota.tx_len)) {
                 s_ota.step = OTA_STEP_DOWNLOAD_WAIT;
                 s_ota.poll = 0;
@@ -916,7 +979,7 @@ static void OtaTmrProc(void *pdata)
         break;
 
     case OTA_STEP_FINISH:
-        /* 调用FW_UPG_Finish复位 */
+        /* 调用FW_UPG_Finish复位（CLOSED事件未及时到达时的兜底路径） */
         printf("[ota] upgrade finish, reset\r\n");
         FW_UPG_Finish();
         /* 不会执行到这里，FW_UPG_Finish会复位 */
