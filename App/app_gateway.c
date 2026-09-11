@@ -58,8 +58,8 @@ void app_gateway_init(void)
     sensor_register(&sensor_sim);
     sensor_register(&sensor_smoke);
 
-    /* 云平台: 暂时禁用MQTT，单独测试OTA
-    cloud_init(&s_cloud_cfg, app_devmodel_cloud_set); */
+    /* 云平台接入 */
+    cloud_init(&s_cloud_cfg, app_devmodel_cloud_set);
 
     /* OTA升级: 状态机初始化 */
     ota_init();
@@ -85,39 +85,36 @@ void app_gateway_loop(void)
     /* 传感器采集引擎轮询(到期自动read并写入物模型) */
     sensor_poll();
 
-    /* 平台断链计数挂载测试: 周期检测link层断链次数变化并打印 */
+    /* 平台断链计数挂载测试: 周期检测link层断链次数变化 */
     if (now - discnt_tick >= GW_DISCNT_MS) {
         uint32_t discnt = link_get()->get_discnt();
 
         discnt_tick = now;
-        if (discnt != last_discnt) {
-            last_discnt = discnt;
-            printf("[link] disconnect count: %u\r\n", (unsigned int)discnt);
-        }
+        last_discnt = discnt;
     }
 
     /* 状态指示: 在线绿灯, 离线红灯 */
     if (now - led_tick >= GW_LED_MS) {
-        uint8_t wifi_ready = link_get()->is_ready();
-        
+        uint8_t cloud_online = cloud_is_online();
+
         led_tick = now;
-        if (wifi_ready) {
+        if (cloud_online) {
             LED_GREEN;
         } else {
             LED_RED;
         }
-        
-        /* WiFi连接边沿触发OTA检查（MQTT已禁用） */
-        if (wifi_ready && !last_online) {
-            printf("[gateway] wifi ready, trigger OTA check\r\n");
+
+        /* 云上线边沿触发OTA */
+        if (cloud_online && !last_online) {
+            printf("[gateway] cloud online, trigger OTA check\r\n");
             ota_trigger();
         }
-        last_online = wifi_ready;
+        last_online = cloud_online;
     }
 
-    /* 越限告警事件上报(WiFi就绪时, 防抖避免风暴) */
+    /* 越限告警事件上报(在线时, 防抖避免风暴) */
     if (app_devmodel_alarm_pending()) {
-        if (link_get()->is_ready() && now - alarm_tick >= GW_ALARM_MS) {
+        if (cloud_is_online() && now - alarm_tick >= GW_ALARM_MS) {
             alarm_tick = now;
             printf("[gateway] alarm event post\r\n");
             cloud_post_event("limit_alarm",

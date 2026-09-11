@@ -133,12 +133,8 @@ static void OtaCloseLink(void)
 static uint8_t OtaSendRequest(const char *data, int len)
 {
     if (s_ota.tx_busy) {
-        printf("[ota] tx busy\r\n");
         return 0;
     }
-    /* 打印发送的原始请求 */
-    printf("[ota] tx %d bytes:\r\n", len);
-    printf("%.*s\r\n", len, data);
     
     /* 重置响应状态，准备接收新响应 */
     s_ota.send_result = 0;
@@ -239,18 +235,15 @@ static void OtaLinkEvCb(link_event_t ev, const uint8_t *data, int len)
         break;
 
     case LINK_EV_DATA:
-        /* 累积HTTP响应数据，按Content-Length期望长度截断：
-           ESP8266 +IPD分包声明长度可能错误(实测声明1280实际12)，
-           超时强制投递=垃圾前缀+真实后缀(实测垃圾恒254字节)，
-           投递超量时取尾部剩余字节，跳过垃圾前缀 */
+        /* 按Content-Length期望长度截断, 超量投递取尾部 */
         if (s_ota.resp_body_offset > 0) {
             int need = s_ota.resp_body_offset + s_ota.content_length;
             if (s_ota.resp_len + len > need) {
                 int take = need - s_ota.resp_len;
                 if (take <= 0) {
-                    break; /* 已收满期望字节，多余垃圾丢弃 */
+                    break; /* 已收满, 丢弃多余 */
                 }
-                data += len - take; /* 跳过垃圾前缀 */
+                data += len - take; /* 跳垃圾前缀 */
                 len = take;
             }
         }
@@ -266,11 +259,9 @@ static void OtaLinkEvCb(link_event_t ev, const uint8_t *data, int len)
         s_ota.link_open = 0;
         s_ota.tx_busy = 0;
         if (s_ota.step == OTA_STEP_FINISH) {
-            /* 升级流程已完成、主动关闭链路：CLOSED事件异步到达时
-               step已是FINISH，此处直接复位，不能走OtaReset打回IDLE，
-               否则OTA_STEP_FINISH分支永远无法执行 */
+            /* 主动关链后CLOSED异步到达, 此处直接复位, 不回IDLE */
             FW_UPG_Finish();
-            /* 不会返回，FW_UPG_Finish内部写标志后NVIC_SystemReset */
+            /* 不返回 */
         } else if (s_ota.step != OTA_STEP_IDLE) {
             /* 非正常关闭，重置状态机 */
             OtaReset();
@@ -530,8 +521,6 @@ static void OtaTmrProc(void *pdata)
                    s_ota.resp_body_offset == 0) {
             /* 首次收到HTTP头，解析Content-Length */
             OtaParseHttpResponse();
-            printf("[ota] header: offset=%d, content_length=%d, resp_len=%d\r\n",
-                   s_ota.resp_body_offset, s_ota.content_length, s_ota.resp_len);
             
             /* 检查HTTP状态码：分片下载必须返回206 */
             if (strstr(s_ota.resp_buf, "206 Partial Content") == NULL) {
@@ -556,22 +545,9 @@ static void OtaTmrProc(void *pdata)
                 break;
             }
 
-            /* body按Content-Length取数：+IPD分包声明长度不可信，
-               超时投递可能混入垃圾字节，真实数据连续在前部，
-               超出期望的丢弃(移植自wifi_pro dl_feed截断策略) */
+            /* body按Content-Length取数, 超量部分丢弃 */
 
             /* 写入固件数据 */
-            printf("[ota] body: offset=%d, len=%d, resp_len=%d\r\n",
-                   s_ota.resp_body_offset, s_ota.resp_body_len, s_ota.resp_len);
-            if (s_ota.recv_size == 0 && s_ota.resp_body_len >= 32) {
-                /* 诊断：打印第一片body前32字节，与固件bin开头对比定位错位模式 */
-                int i;
-                printf("[ota] body head:");
-                for (i = 0; i < 32; i++) {
-                    printf(" %02X", (uint8_t)s_ota.resp_buf[s_ota.resp_body_offset + i]);
-                }
-                printf("\r\n");
-            }
             if (s_ota.resp_body_len > 0) {
                 if (!FW_UPG_WriteData((uint8_t *)s_ota.resp_buf + s_ota.resp_body_offset,
                                       s_ota.resp_body_len)) {
@@ -583,19 +559,12 @@ static void OtaTmrProc(void *pdata)
                 }
                 
                 /* 更新MD5 */
-                printf("[ota] md5 update: data@%p, len=%d\r\n",
-                       s_ota.resp_buf + s_ota.resp_body_offset,
-                       s_ota.resp_body_len);
                 MD5_Update(&s_ota.md5_ctx, 
                           s_ota.resp_buf + s_ota.resp_body_offset,
                           s_ota.resp_body_len);
                 
                 s_ota.recv_size += s_ota.resp_body_len;
                 s_ota.chunks_downloaded++;
-                printf("[ota] chunk %d/%d: %d/%d (%d%%)\r\n", 
-                       s_ota.chunks_downloaded, s_ota.total_chunks,
-                       s_ota.recv_size, s_ota.fw_size,
-                       (s_ota.recv_size * 100) / s_ota.fw_size);
             }
             
             /* 检查是否下载完成 */
@@ -695,7 +664,6 @@ static void OtaTmrProc(void *pdata)
             
             if (should_report) {
                 /* 上报下载进度 */
-                printf("[ota] report progress: step %d\r\n", report_step);
                 s_ota.tx_len = ota_status_request(OtaGetExpireTs(),
                                                  GW_ONENET_PRODUCT_ID,
                                                  GW_ONENET_DEVICE_NAME,
@@ -722,9 +690,6 @@ static void OtaTmrProc(void *pdata)
             if (range_end >= s_ota.fw_size) {
                 range_end = s_ota.fw_size - 1;
             }
-            printf("[ota] next range: %ld-%ld (chunk %d/%d)\r\n", 
-                   range_start, range_end,
-                   s_ota.chunks_downloaded + 1, s_ota.total_chunks);
             s_ota.tx_len = ota_download_request(OtaGetExpireTs(),
                                                GW_ONENET_PRODUCT_ID,
                                                GW_ONENET_DEVICE_NAME,
@@ -793,14 +758,10 @@ static void OtaTmrProc(void *pdata)
             /* 收到HTTP头，解析Content-Length */
             if (s_ota.resp_body_offset == 0) {
                 OtaParseHttpResponse();
-                printf("[ota] rx header %d bytes:\r\n", s_ota.resp_body_offset);
-                printf("%.*s\r\n", s_ota.resp_body_offset, s_ota.resp_buf);
             }
             /* 检查是否收够Content-Length指定的数据量 */
             if (s_ota.resp_body_offset > 0 && 
                 s_ota.resp_len >= s_ota.resp_body_offset + s_ota.content_length) {
-                printf("[ota] rx %d bytes:\r\n", s_ota.resp_len);
-                printf("%s\r\n", s_ota.resp_buf);
             } else {
                 /* 继续等待数据 */
                 osal_timer_start(s_ota.tmr, 10, 1);
@@ -898,14 +859,10 @@ static void OtaTmrProc(void *pdata)
             /* 收到HTTP头，解析Content-Length */
             if (s_ota.resp_body_offset == 0) {
                 OtaParseHttpResponse();
-                printf("[ota] rx header %d bytes:\r\n", s_ota.resp_body_offset);
-                printf("%.*s\r\n", s_ota.resp_body_offset, s_ota.resp_buf);
             }
             /* 检查是否收够Content-Length指定的数据量 */
             if (s_ota.resp_body_offset > 0 && 
                 s_ota.resp_len >= s_ota.resp_body_offset + s_ota.content_length) {
-                printf("[ota] rx %d bytes:\r\n", s_ota.resp_len);
-                printf("%s\r\n", s_ota.resp_buf);
                 
                 /* 上报step 201 */
                 s_ota.tx_len = ota_status_request(OtaGetExpireTs(),
@@ -952,14 +909,10 @@ static void OtaTmrProc(void *pdata)
             /* 收到HTTP头，解析Content-Length */
             if (s_ota.resp_body_offset == 0) {
                 OtaParseHttpResponse();
-                printf("[ota] rx header %d bytes:\r\n", s_ota.resp_body_offset);
-                printf("%.*s\r\n", s_ota.resp_body_offset, s_ota.resp_buf);
             }
             /* 检查是否收够Content-Length指定的数据量 */
             if (s_ota.resp_body_offset > 0 && 
                 s_ota.resp_len >= s_ota.resp_body_offset + s_ota.content_length) {
-                printf("[ota] rx %d bytes:\r\n", s_ota.resp_len);
-                printf("%s\r\n", s_ota.resp_buf);
                 
                 /* 关闭链路，准备复位 */
                 OtaCloseLink();

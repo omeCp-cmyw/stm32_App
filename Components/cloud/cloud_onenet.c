@@ -233,10 +233,8 @@ static uint8_t OnenetPublish(const char *topic, const char *payload, int plen)
     int pkt_len;
 
     if (s_tx_busy) {
-        printf("onenet tx busy, publish dropped\r\n");
         return 0;
     }
-    printf("mqtt tx: %s\r\n", topic);
     pkt_len = mqtt_build_publish(s_mqtt_tx, sizeof(s_mqtt_tx), topic,
                                  (const uint8_t *)payload, plen);
     if (pkt_len <= 0) {
@@ -574,17 +572,14 @@ static void prop_apply(prop_t *prop, double value)
     case PROP_BOOL:
         prop->bool_val = value != 0;
         snprintf(vbuf, sizeof(vbuf), "%s", prop->bool_val ? "true" : "false");
-        printf("prop %s <- %s\r\n", prop->key, vbuf);
         break;
     case PROP_FLOAT:
         prop->float_val = (float)value;
         FloatToStr(prop->float_val, vbuf, sizeof(vbuf));
-        printf("prop %s <- %s\r\n", prop->key, vbuf);
         break;
     default:
         prop->int_val = (int)value;
         snprintf(vbuf, sizeof(vbuf), "%d", prop->int_val);
-        printf("prop %s <- %d\r\n", prop->key, prop->int_val);
         break;
     }
 
@@ -705,16 +700,9 @@ static int parse_desired_reply(const char *json)
             continue;
         }
         if (json_get_nested_number(json, s_props[i].key, &desired_val) == 0) {
-            char vbuf[24];
-
-            FloatToStr((float)desired_val, vbuf, sizeof(vbuf));
-            printf("desired %s = %s\r\n", s_props[i].key, vbuf);
             prop_apply(&s_props[i], desired_val);
             applied++;
         }
-    }
-    if (applied == 0) {
-        printf("desired reply has no writable props\r\n");
     }
     return applied > 0 ? 0 : -1;
 }
@@ -732,19 +720,13 @@ static void OnenetMessage(const mqtt_pub_t *pub)
 
     memcpy(s_msg, pub->payload, len);
     s_msg[len] = '\0';
-    printf("platform msg on %s\r\n  payload: %s\r\n", pub->topic, s_msg);
 
     if (strcmp(pub->topic, s_topic_post_reply) == 0 ||
         strcmp(pub->topic, s_topic_event_reply) == 0) {
         int code = -1;
         char errmsg[64];
 
-        if (parse_reply_json(s_msg, &code, errmsg, sizeof(errmsg)) == 0) {
-            printf("report %s, errcode=%d errmsg=%s\r\n",
-                   code == 0 || code == 200 ? "ok" : "failed", code, errmsg);
-        } else {
-            printf("reply unparsed: %s\r\n", s_msg);
-        }
+        parse_reply_json(s_msg, &code, errmsg, sizeof(errmsg));
     } else if (strcmp(pub->topic, s_topic_set) == 0) {
         char reply[160];
         char reply_topic[ONENET_TOPIC_MAX_LEN];
@@ -758,8 +740,6 @@ static void OnenetMessage(const mqtt_pub_t *pub)
         }
     } else if (strcmp(pub->topic, s_topic_desired_reply) == 0) {
         parse_desired_reply(s_msg);
-    } else {
-        printf("unmatched topic, %d bytes ignored\r\n", pub->payload_len);
     }
 }
 
@@ -783,10 +763,8 @@ static void OnenetFrame(const mqtt_frame_t *f)
         break;
     case 0x90:                  /* SUBACK */
         s_suback_cnt++;
-        printf("suback %u\r\n", (unsigned int)s_suback_cnt);
         break;
     case 0xC0:                  /* 平台主动PINGREQ探测: 回PINGRESP保活 */
-        printf("[onenet] pingreq from server, reply pingresp\r\n");
         OnenetPingRespSend();
         break;
     case 0xD0:                  /* PINGRESP */
@@ -831,7 +809,6 @@ static void OnenetIpdData(const uint8_t *data, uint16_t len)
 
     mqtt_reasm_feed(data, len);
     while (mqtt_reasm_next(&f) == 0) {
-        printf("mqtt rx: %s, %d bytes\r\n", mqtt_type_name(f.type), f.remlen);
         OnenetFrame(&f);
         mqtt_reasm_consume();
     }
@@ -853,9 +830,8 @@ static void OnenetClose(void)
     s_send_result = 0;
     OnenetSetState(CLOUD_ST_RECONN);
 
-    /* 重连计数+1并打印(覆盖断链/接入失败/WiFi掉线所有收尾场景) */
+    /* 重连计数+1 */
     s_reconn_cnt++;
-    printf("[onenet] reconnect count: %u\r\n", (unsigned int)s_reconn_cnt);
 
     /* 关闭链路(fire-and-forget), 直接进入重连延时 */
     link_get()->close();
@@ -912,7 +888,6 @@ static void OnenetConnectSend(void)
         OnenetClose();
         return;
     }
-    printf("token: %s\r\n", s_token);
 
     pkt_len = mqtt_build_connect(s_mqtt_tx, sizeof(s_mqtt_tx), s_cfg.client_id,
                                  s_cfg.username, s_token, ONENET_KEEPALIVE_SEC);
@@ -1001,7 +976,6 @@ static void OnenetReport(void)
     if (len > 0) {
         snprintf(topic, sizeof(topic), ONENET_TOPIC_POST,
                  s_cfg.product_id, s_cfg.device_name);
-        printf("property post (%d bytes)\r\n", len);
         OnenetPublish(topic, s_json, len);
     }
 }
@@ -1034,9 +1008,7 @@ static void OnenetPingRespSend(void)
     static const uint8_t resp[2] = { 0xD0, 0x00 };
 
     /* fire-and-forget: 失败由平台重发PINGREQ兜底 */
-    if (!link_get()->send(resp, 2, 0)) {
-        printf("[onenet] pingresp busy, dropped\r\n");
-    }
+    link_get()->send(resp, 2, 0);
 }
 
 /*******************************************************************
@@ -1142,7 +1114,12 @@ static void OnenetTmrProc(void *pdata)
         /* 心跳到期置排队标志: 发送busy时让路, 释放后补发,
          * 避免心跳周期与上报周期撞车(30s是10s整数倍)被事务饿死 */
         if (now - s_last_ping >= ONENET_HEARTBEAT_MS) {
-            s_ping_due = 1;
+            if (FW_UPG_GetState() == FW_UPG_STATE_IDLE) {
+                s_ping_due = 1;
+            } else {
+                /* OTA升级中暂停心跳, 避免PINGRESP串扰下载 */
+                s_last_ping = now;
+            }
         }
 
         /* 发送缓冲空闲: 心跳优先补发, 其次周期上报 */

@@ -92,7 +92,6 @@ static INT8U WifiIpdHeadParse(void)
     }
     if (ipd != s_line) {
         INT16U skip = (INT16U)(ipd - s_line);
-        printf("[wifi] ipd resync, drop %u junk bytes\r\n", (unsigned int)skip);
         memmove(s_line, ipd, s_line_len - skip);
         s_line_len = (INT8U)(s_line_len - skip);
     }
@@ -180,7 +179,6 @@ static void WifiRecvHandle(INT8U rdata)
         /* 一行结束，判断应答 */
         if (s_line_len > 0) {
             s_line[s_line_len] = 0;
-            printf("[wifi] %s\r\n", s_line);
             if (strstr(s_line, "WIFI DISCONNECT") != 0) {
                 /* STA断开事件，上报mmi记录状态并触发恢复 */
                 WIFI_MMI_OnStaEvent(0);
@@ -204,7 +202,6 @@ static void WifiRecvHandle(INT8U rdata)
                 WIFI_SendAck("OK");
             } else if (strstr(s_line, "busy p") != 0) {
                 /* ESP8266忙，标记发送失败 */
-                printf("[wifi] busy p detected\r\n");
                 WIFI_SendAck("BUSY");
             } else if (strstr(s_line, "ERROR") != 0) {
                 WIFI_SendAck("ERROR");
@@ -252,21 +249,6 @@ static void WifiRecvTmrProc(void *pdata)
        超时未凑满则强制投递已收数据并恢复行模式 */
     if (s_rs == RS_IPD && s_ipd_cnt > 0 &&
         SYSTICK_GetMsTick() - s_ipd_tick >= IPD_TIMEOUT_MS) {
-        printf("[wifi] ipd timeout: got %u/%u, force deliver\r\n",
-               (unsigned int)s_ipd_cnt, (unsigned int)s_ipd_dlen);
-        /* 诊断：打印超时投递数据前32字节(疑似垃圾区)和尾16字节(疑似真实区) */
-        {
-            INT16U i, n = s_ipd_cnt;
-            printf("[wifi] ipd head:");
-            for (i = 0; i < n && i < 32; i++) {
-                printf(" %02X", s_ipd_buf[i]);
-            }
-            printf("\r\n[wifi] ipd tail:");
-            for (i = (n > 16) ? n - 16 : 0; i < n; i++) {
-                printf(" %02X", s_ipd_buf[i]);
-            }
-            printf("\r\n");
-        }
         WifiIpdDeliver();
         s_rs = RS_LINE;
     }

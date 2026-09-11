@@ -137,7 +137,6 @@ static void WifiSendTmrProc(void *pdata)
                 continue;
             }
             next = (WIFI_CELL_T *)LS_LIST_DeleListEle(&s_readylist, (INT8U *)cell);
-            printf("[wifi] send: %s", cell->str);
             DRV_UART_WriteBlock(WIFI_COM, (INT8U *)cell->str, cell->len);
             if (cell->ct_send > 0) {
                 /* 需等待应答，移入等待队列，本轮不再发其他指令 */

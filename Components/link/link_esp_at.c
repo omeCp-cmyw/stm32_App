@@ -178,7 +178,6 @@ static int LinkEspOpen(const char *host, uint16_t port, link_event_cb_t ev_cb)
     s_ev_cb = ev_cb;
     snprintf(s_cmd, sizeof(s_cmd), "AT+CIPSTART=%u,\"TCP\",\"%s\",%u\r\n",
              (unsigned int)ESP_LINK_TCP, host, (unsigned int)port);
-    printf("[link] %s", s_cmd);
 
     if (!WIFI_SendListSend("OK", "ERROR", s_cmd, (uint16_t)strlen(s_cmd),
                            ESP_OPEN_RETRIES + 1, ESP_OPEN_TIMEOUT_MS,

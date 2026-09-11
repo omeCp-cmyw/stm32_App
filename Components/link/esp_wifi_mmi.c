@@ -179,21 +179,8 @@ static void WifiReconnDone(uint8_t result)
 static void WifiIpdHandler(uint8_t link, const uint8_t *data, uint16_t len)
 {
     uint32_t unix_ts;
-    uint16_t i;
 
     link = link;
-
-    /* 打印NTP应答原始数据 */
-    printf("[wifi] ntp raw(%u):\r\n", (unsigned int)len);
-    for (i = 0; i < len; i++) {
-        printf("%02X ", data[i]);
-        if ((i & 0xf) == 0xf) {
-            printf("\r\n");
-        }
-    }
-    if ((len & 0xf) != 0) {
-        printf("\r\n");
-    }
 
     if (NTP_MMI_ParseReply(data, len, &unix_ts) == 0) {
         NTP_MMI_SetTime(unix_ts);

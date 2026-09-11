@@ -137,7 +137,6 @@ static void LinkOtaSendDone(uint8_t result)
 {
     link_send_done_t done = s_done;
 
-    printf("[link-ota] LinkOtaSendDone result=%d, done=%p\r\n", result, done);
     s_busy = 0;
     s_done = 0;
     /* 发送超时(模块完全无应答)=死机铁证, 立即复位模块自愈 */
@@ -190,7 +189,6 @@ static int LinkOtaOpen(const char *host, uint16_t port, link_event_cb_t ev_cb)
     s_ev_cb = ev_cb;
     snprintf(s_cmd, sizeof(s_cmd), "AT+CIPSTART=%u,\"TCP\",\"%s\",%u\r\n",
              (unsigned int)ESP_LINK_OTA, host, (unsigned int)port);
-    printf("[link-ota] %s", s_cmd);
 
     if (!WIFI_SendListSend("OK", "ERROR", s_cmd, (uint16_t)strlen(s_cmd),
                            ESP_OPEN_RETRIES + 1, ESP_OPEN_TIMEOUT_MS,
