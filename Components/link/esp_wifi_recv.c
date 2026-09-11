@@ -70,6 +70,7 @@ static void WifiIpdDeliver(void)
 ** 函数描述	: 解析"+IPD,<link>,<len>:"头，冒号后字节作为负载开头
 ** 参数		: 无
 ** 返回		: 1切负载模式，0头未完整/非+IPD行
+** 备注		: 检测到+IPD前缀后持续累积直到冒号，避免二进制数据中\n误触发行匹配
 ********************************************************************/
 static INT8U WifiIpdHeadParse(void)
 {
@@ -90,6 +91,7 @@ static INT8U WifiIpdHeadParse(void)
     /* 负载长度：数字到冒号 */
     colon = strchr(s_line + 7, ':');
     if (colon == 0) {
+        /* 未找到冒号：可能是+IPD头还没收完整，继续等待 */
         return 0;
     }
     p = s_line + 7;
@@ -149,6 +151,14 @@ static void WifiRecvHandle(INT8U rdata)
         return;
     }
     if (rdata == '\n') {
+        /* 检测到+IPD前缀但未收完整头时，跳过换行符继续累积 */
+        if (s_line_len >= 5 && strncmp(s_line, "+IPD,", 5) == 0) {
+            /* +IPD头可能跨越多行，继续等待冒号 */
+            if (s_line_len < sizeof(s_line) - 1) {
+                s_line[s_line_len++] = (char)rdata;
+            }
+            return;
+        }
         /* 一行结束，判断应答 */
         if (s_line_len > 0) {
             s_line[s_line_len] = 0;
@@ -171,6 +181,9 @@ static void WifiRecvHandle(INT8U rdata)
                 WIFI_SendAck("SEND OK");
             } else if (strstr(s_line, "SEND FAIL") != 0) {
                 WIFI_SendAck("SEND FAIL");
+            } else if (strstr(s_line, "ALREADY CONNECTED") != 0) {
+                /* CIPSTART时链路已存在，视为成功 */
+                WIFI_SendAck("OK");
             } else if (strstr(s_line, "busy p") != 0) {
                 /* ESP8266忙，标记发送失败 */
                 printf("[wifi] busy p detected\r\n");
