@@ -38,7 +38,10 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f4xx_it.h"
-#include "drv_systick.h"
+#include "../Platform/drv_uart/bsp_debug_usart.h"
+
+#include "FreeRTOS.h"					//FreeRTOSʹ��		  
+#include "task.h" 
 
 /** @addtogroup STM32F4xx_HAL_Examples
   * @{
@@ -73,13 +76,13 @@ void NMI_Handler(void)
   * @param  None
   * @retval None
   */
-void HardFault_Handler(void)
-{
-  /* Go to infinite loop when Hard Fault exception occurs */
-  while (1)
-  {
-  }
-}
+//void HardFault_Handler(void)
+//{
+//  /* Go to infinite loop when Hard Fault exception occurs */
+//  while (1)
+//  {
+//  }
+//}
 
 /**
   * @brief  This function handles Memory Manage exception.
@@ -125,9 +128,9 @@ void UsageFault_Handler(void)
   * @param  None
   * @retval None
   */
-void SVC_Handler(void)
-{
-}
+//void SVC_Handler(void)
+//{
+//}
 
 /**
   * @brief  This function handles Debug Monitor exception.
@@ -143,18 +146,35 @@ void DebugMon_Handler(void)
   * @param  None
   * @retval None
   */
-void PendSV_Handler(void)
-{
-}
+//void PendSV_Handler(void)
+//{
+//}
 
 /**
   * @brief  This function handles SysTick Handler.
   * @param  None
   * @retval None
   */
+extern void xPortSysTickHandler(void);
+
 void SysTick_Handler(void)
 {
-    SYSTICK_Handler();
+  uint32_t ulReturn;
+  /* �����ٽ�Σ��ٽ�ο���Ƕ�� */
+  ulReturn = taskENTER_CRITICAL_FROM_ISR();
+  
+  HAL_IncTick();
+#if (INCLUDE_xTaskGetSchedulerState  == 1 )
+  if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED)
+  {
+#endif  /* INCLUDE_xTaskGetSchedulerState */  
+  xPortSysTickHandler();
+#if (INCLUDE_xTaskGetSchedulerState  == 1 )
+  }
+#endif  /* INCLUDE_xTaskGetSchedulerState */
+  
+  /* �˳��ٽ�� */
+  taskEXIT_CRITICAL_FROM_ISR( ulReturn );
 }
 
 /******************************************************************************/
@@ -169,8 +189,24 @@ void SysTick_Handler(void)
   * @param  None
   * @retval None
   */
+void EXTI0_IRQHandler(void)
+{
+  
+}
 
+extern uint8_t Rxflag;
 
+void  DEBUG_USART_IRQHandler(void)
+{
+  uint8_t ch=0; 
+  
+	if(__HAL_UART_GET_FLAG( &UartHandle, UART_FLAG_RXNE ) != RESET)
+	{		
+    ch=( uint16_t)READ_REG(UartHandle.Instance->DR);
+    WRITE_REG(UartHandle.Instance->DR,ch); 
+ 
+	}
+}
 /**
   * @brief  This function handles PPP interrupt request.
   * @param  None

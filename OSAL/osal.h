@@ -1,179 +1,138 @@
-#ifndef OSAL_H
-#define OSAL_H
+/********************************************************************************
+**
+** 文件名:     osal.h
+** 版权所有:   无
+** 文件描述:   该模块主要实现操作系统抽象层接口定义
+**
+*********************************************************************************/
 
-#include <stddef.h>
-#include "osal_types.h"
-#include "osal_config.h"
 
-/*
- * OSAL(操作系统抽象层)统一接口：
- * 裸机版由osal_baremetal.c实现；日后移植FreeRTOS仅需新增
- * osal_freertos.c实现同一接口，上层组件零改动。
- * 上层组件只允许依赖本头文件，禁止直接包含芯片/驱动头文件。
- */
+#ifndef __OSAL_H
+#define __OSAL_H
 
-/* 复位事件 */
-typedef enum {
-    OSAL_RESET_ERR = 0,                 /* 程序异常复位 */
-    OSAL_RESET_INITIATE,                /* 上电复位 */
-    OSAL_RESET_DIRECT,                  /* 直接复位，不回调复位通知函数 */
-    OSAL_RESET_UPDATE,                  /* 固件升级复位 */
-    OSAL_RESET_MAX
-} OSAL_RESET_EVENT_E;
+#include <stdint.h>
 
-/* 复位回调优先级，0为最高优先级 */
-typedef enum {
-    OSAL_RESET_PRI_0 = 0,
-    OSAL_RESET_PRI_MAX
-} OSAL_RESET_PRI_E;
+/* OSAL类型定义 */
+typedef void* osal_task_t;
+typedef void* osal_queue_t;
+typedef void* osal_sem_t;
+typedef void* osal_mutex_t;
 
-/* 看门狗喂狗回调，由板级启动时注册（如IWDG_Feed） */
-typedef void (*osal_watchdog_fn)(void);
+/* 错误码定义 */
+#define OSAL_OK                 0
+#define OSAL_ERROR              (-1)
+#define OSAL_TIMEOUT            (-2)
+#define OSAL_NOMEM              (-3)
 
-/*******************************************************************
-** 函数名	: osal_register_watchdog
-** 函数描述	: 注册看门狗喂狗回调，osal_task_loop与osal_reset内自动调用
-** 参数		: [in] fn: 喂狗函数，传0取消
-** 返回		: 无
-********************************************************************/
-void osal_register_watchdog(osal_watchdog_fn fn);
+/* 超时定义 */
+#define OSAL_WAIT_FOREVER       0xFFFFFFFF
+#define OSAL_NO_WAIT            0
 
-/*******************************************************************
-** 函数名	: osal_init
-** 函数描述	: OSAL初始化：软件定时器池+错误管理，须在时基就绪后调用
-** 参数		: 无
-** 返回		: 无
-********************************************************************/
-void osal_init(void);
+/**
+  * @brief  创建任务
+  * @param  task: 任务句柄指针
+  * @param  name: 任务名称
+  * @param  entry: 任务入口函数
+  * @param  param: 任务参数
+  * @param  stack_size: 任务栈大小（字）
+  * @param  priority: 任务优先级
+  * @retval 0: 成功, 其他: 失败
+  */
+int osal_task_create(osal_task_t *task, const char *name,
+                     void (*entry)(void*), void *param,
+                     uint32_t stack_size, uint32_t priority);
 
-/*******************************************************************
-** 函数名	: osal_task_loop
-** 函数描述	: 主循环调度入口：喂狗+软件定时器调度+诊断函数轮询
-** 参数		: 无
-** 返回		: 无
-********************************************************************/
-void osal_task_loop(void);
+/**
+  * @brief  删除任务
+  * @param  task: 任务句柄
+  * @retval 无
+  */
+void osal_task_delete(osal_task_t task);
 
-/*******************************************************************
-** 函数名	: osal_time_tick
-** 函数描述	: 获取系统tick计数
-** 参数		: 无
-** 返回		: tick值，1tick=10us
-********************************************************************/
-uint32_t osal_time_tick(void);
+/**
+  * @brief  任务延时
+  * @param  ms: 延时时间（毫秒）
+  * @retval 无
+  */
+void osal_task_delay(uint32_t ms);
 
-/*******************************************************************
-** 函数名	: osal_time_ms
-** 函数描述	: 获取系统毫秒计数
-** 参数		: 无
-** 返回		: 毫秒值
-********************************************************************/
-uint32_t osal_time_ms(void);
+/**
+  * @brief  创建消息队列
+  * @param  size: 队列大小
+  * @param  item_size: 每个消息的大小
+  * @retval 队列句柄, NULL: 失败
+  */
+osal_queue_t osal_queue_create(uint32_t size, uint32_t item_size);
 
-/*******************************************************************
-** 函数名	: osal_timer_create
-** 函数描述	: 创建软件定时器
-** 参数		: [in] index: 回调参数指针
-**          : [in] cb:    到期回调
-** 返回		: 定时器ID，失败返回0xff
-********************************************************************/
-uint8_t osal_timer_create(void *index, void (*cb)(void *index));
+/**
+  * @brief  发送消息到队列
+  * @param  queue: 队列句柄
+  * @param  item: 消息指针
+  * @param  timeout: 超时时间
+  * @retval 0: 成功, 其他: 失败
+  */
+int osal_queue_send(osal_queue_t queue, const void *item, uint32_t timeout);
 
-/*******************************************************************
-** 函数名	: osal_timer_delete
-** 函数描述	: 删除定时器
-** 参数		: [in] id: 定时器ID
-** 返回		: 无
-********************************************************************/
-void osal_timer_delete(uint8_t id);
+/**
+  * @brief  从队列接收消息
+  * @param  queue: 队列句柄
+  * @param  item: 消息缓冲区
+  * @param  timeout: 超时时间
+  * @retval 0: 成功, 其他: 失败
+  */
+int osal_queue_recv(osal_queue_t queue, void *item, uint32_t timeout);
 
-/*******************************************************************
-** 函数名	: osal_timer_start
-** 函数描述	: 启动定时器（按毫秒计）
-** 参数		: [in] id:       定时器ID
-**          : [in] ms:       定时时长(ms)
-**          : [in] periodic: 1周期重装执行，0单次到期自停
-** 返回		: 无
-********************************************************************/
-void osal_timer_start(uint8_t id, uint32_t ms, uint8_t periodic);
+/**
+  * @brief  创建信号量
+  * @retval 信号量句柄, NULL: 失败
+  */
+osal_sem_t osal_sem_create(void);
 
-/*******************************************************************
-** 函数名	: osal_timer_stop
-** 函数描述	: 停止定时器
-** 参数		: [in] id: 定时器ID
-** 返回		: 无
-********************************************************************/
-void osal_timer_stop(uint8_t id);
+/**
+  * @brief  等待信号量
+  * @param  sem: 信号量句柄
+  * @param  timeout: 超时时间
+  * @retval 0: 成功, 其他: 失败
+  */
+int osal_sem_wait(osal_sem_t sem, uint32_t timeout);
 
-/*******************************************************************
-** 函数名	: osal_timer_is_run
-** 函数描述	: 查询定时器是否运行中
-** 参数		: [in] id: 定时器ID
-** 返回		: 1运行，0停止
-********************************************************************/
-uint8_t osal_timer_is_run(uint8_t id);
+/**
+  * @brief  释放信号量
+  * @param  sem: 信号量句柄
+  * @retval 无
+  */
+void osal_sem_post(osal_sem_t sem);
 
-/*******************************************************************
-** 函数名	: osal_timer_left_ms
-** 函数描述	: 获取定时器剩余时间
-** 参数		: [in] id: 定时器ID
-** 返回		: 剩余时间(ms)
-********************************************************************/
-uint32_t osal_timer_left_ms(uint8_t id);
+/**
+  * @brief  创建互斥锁
+  * @retval 互斥锁句柄, NULL: 失败
+  */
+osal_mutex_t osal_mutex_create(void);
 
-/*******************************************************************
-** 函数名	: osal_enter_critical
-** 函数描述	: 进入临界区（关全局中断）
-** 参数		: 无
-** 返回		: 无
-********************************************************************/
-void osal_enter_critical(void);
+/**
+  * @brief  获取互斥锁
+  * @param  mutex: 互斥锁句柄
+  * @retval 无
+  */
+void osal_mutex_lock(osal_mutex_t mutex);
 
-/*******************************************************************
-** 函数名	: osal_exit_critical
-** 函数描述	: 退出临界区（恢复全局中断）
-** 参数		: 无
-** 返回		: 无
-********************************************************************/
-void osal_exit_critical(void);
+/**
+  * @brief  释放互斥锁
+  * @param  mutex: 互斥锁句柄
+  * @retval 无
+  */
+void osal_mutex_unlock(osal_mutex_t mutex);
 
-/*******************************************************************
-** 函数名	: osal_reset
-** 函数描述	: 复位设备，复位前依次调用已注册的通知回调
-** 参数		: [in] event:    复位事件，见OSAL_RESET_EVENT_E
-**          : [in] filename: 触发文件名
-**          : [in] line:     触发行号
-** 返回		: 无
-********************************************************************/
-void osal_reset(uint8_t event, char *filename, uint32_t line);
+/**
+  * @brief  获取系统滴答计数
+  * @retval 滴答计数
+  */
+uint32_t osal_get_tick(void);
 
-/*
- * 断言：条件不满足时打印并复位，随后从当前函数返回retvalue。
- * 用法与旧OS_ASSERT一致，retvalue可传RETURN_VOID/RETURN_FALSE等
- */
-#define OSAL_ASSERT(EXPRESSION, retvalue)                       \
-do {                                                            \
-    if (!(EXPRESSION)) {                                        \
-        osal_reset(OSAL_RESET_ERR, (char *)__FILE__, __LINE__); \
-        return retvalue;                                        \
-    }                                                           \
-} while (0)
+/**
+  * @brief  获取系统时间（毫秒）
+  * @retval 时间（毫秒）
+  */
+uint32_t osal_get_time_ms(void);
 
-/*******************************************************************
-** 函数名	: osal_register_reset_inform
-** 函数描述	: 注册复位前通知回调
-** 参数		: [in] prior: 优先级，见OSAL_RESET_PRI_E
-**          : [in] fp:    回调
-** 返回		: 成功1，失败0
-********************************************************************/
-uint8_t osal_register_reset_inform(uint8_t prior, void (*fp)(uint8_t event, char *filename, uint32_t line));
-
-/*******************************************************************
-** 函数名	: osal_register_diag
-** 函数描述	: 注册诊断函数，由osal_task_loop轮询执行
-** 参数		: [in] fp: 诊断函数
-** 返回		: 成功1，失败0
-********************************************************************/
-uint8_t osal_register_diag(void (*fp)(void));
-
-#endif /* OSAL_H */
+#endif /* __OSAL_H */

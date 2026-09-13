@@ -1,74 +1,415 @@
+/********************************************************************************
+**
+** 文件名:     main.c
+** 版权所有:   无
+** 文件描述:   该模块主要实现系统初始化和任务调度
+**
+*********************************************************************************/
+
+
+#include "../Config/system_config.h"
+#include "../Config/task_config.h"
+#include "../OSAL/osal.h"
+#include "../Tools/debug.h"
+
+/* 驱动层头文件 */
+#include "../Platform/drv_manager.h"
+#include "../Platform/drv_led.h"
+#include "../Platform/drv_sensor.h"
+#include "../Platform/drv_camera.h"
+#include "../Platform/drv_lcd.h"
+#include "../Platform/drv_key.h"
+
+/* 组件层头文件 */
+#include "../Components/sensor_manager.h"
+#include "../Components/cloud_manager.h"
+#include "../Components/net_manager.h"
+#include "../Components/ota_manager.h"
+
+/* 原有头文件 */
+#include "stm32f4xx_hal.h"
+#include "../Platform/drv_uart/bsp_debug_usart.h"
+#include "../Platform/drv_led/bsp_led.h"
+#include "../Platform/drv_eth/bsp_eth.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+#include "semphr.h"
+
+#include <string.h>
 #include <stdio.h>
-#include "main.h"
-#include "drv_systick.h"
-#include "drv_iwdg.h"
-#include "drv_uart_reg.h"
-#include "osal.h"
-#include "app_config.h"
-#include "app_gateway.h"
-#include "ymodem.h"
-#include "drv_uart.h"
 
+/* 任务句柄 */
+static osal_task_t task_led;
+static osal_task_t task_sensor;
+static osal_task_t task_cloud;
+static osal_task_t task_camera;
+static osal_task_t task_lcd;
+static osal_task_t task_ntp;
+static osal_task_t task_ota;
+static osal_task_t task_net_init;
+static osal_task_t task_net_debug;
+static osal_task_t task_monitor;
 
-int main(void)
+/* 全局变量 */
+QueueHandle_t MQTT_Data_Queue = NULL;
+
+/* 外部函数声明 */
+extern void TCPIP_Init(void);
+extern void BSP_Init(void);
+extern void vTaskStartScheduler(void);
+extern void vTaskDelete(void *);
+extern uint32_t xTaskGetTickCount(void);
+extern uint32_t xPortGetFreeHeapSize(void);
+
+/* 任务函数声明 */
+static void LED_Task(void *pvParameters);
+static void Sensor_Task(void *pvParameters);
+static void Cloud_Task(void *pvParameters);
+static void Camera_Task(void *pvParameters);
+static void LCD_Task(void *pvParameters);
+static void NTP_Task(void *pvParameters);
+static void OTA_Task(void *pvParameters);
+static void Monitor_Task(void *pvParameters);
+static void Net_Init_Task(void *pvParameters);
+
+/* configTICK_RATE_HZ定义 */
+#ifndef configTICK_RATE_HZ
+#define configTICK_RATE_HZ          1000
+#endif
+
+/*******************************************************************************
+** 函数名称    LED_Task
+** 函数说明    LED闪烁任务
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void LED_Task(void *pvParameters)
 {
-    uint32_t reset_csr;
+    (void)pvParameters;
 
-    /* APP链接在0x08020000，重定位中断向量表 */
-    SCB->VTOR = 0x08020000;
+    while (1) {
+        LED1_TOGGLE;
+        osal_task_delay(500);
+    }
+}
 
-    HAL_Init();
+/*******************************************************************************
+** 函数名称    NetDebug_Task
+** 函数说明    网络调试任务，与上位机通信
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void NetDebug_Task(void *pvParameters)
+{
+    uint8_t recv_buffer[256];
+    int ret;
+    uint32_t heartbeat_cnt = 0;
+    const char *welcome = "STM32 IoT Terminal Connected!\r\n";
+    const char *heartbeat = "HEARTBEAT\r\n";
 
-    /* 读取复位原因标志：RCC_CSR在掉电/上电/引脚复位后被硬件清空，
-     * 软件复位与看门狗复位可跨复位保留，读后软件清除 */
-    reset_csr = RCC->CSR;
-    __HAL_RCC_CLEAR_RESET_FLAGS();
+    (void)pvParameters;
 
-    /* 板级/内核/链路初始化 */
-    app_config_init();
+    /* 等待网络就绪 */
+    DEBUG_INFO("Waiting for network...");
+    osal_task_delay(3000);
 
-    /* 业务编排初始化：物模型绑定+传感器注册+云平台接入 */
-    app_gateway_init();
-
-    /* 打印复位原因：CSR全零为掉电/上电/引脚类硬件复位 */
-    if (reset_csr == 0) {
-        printf("reset cause: power/brown-out/pin (CSR cleared)\r\n");
-    } else {
-        if (reset_csr & RCC_CSR_IWDGRSTF) {
-            printf("reset cause: IWDG\r\n");
-        }
-        if (reset_csr & RCC_CSR_WWDGRSTF) {
-            printf("reset cause: WWDG\r\n");
-        }
-        if (reset_csr & RCC_CSR_SFTRSTF) {
-            printf("reset cause: software\r\n");
-        }
-        if (reset_csr & RCC_CSR_PINRSTF) {
-            printf("reset cause: NRST pin\r\n");
-        }
-        if (reset_csr & RCC_CSR_BORRSTF) {
-            printf("reset cause: BOR\r\n");
-        }
-        if (reset_csr & RCC_CSR_PORRSTF) {
-            printf("reset cause: power-on\r\n");
-        }
-        if (reset_csr & RCC_CSR_LPWRRSTF) {
-            printf("reset cause: low-power\r\n");
-        }
+    /* 初始化网络调试 */
+    while (debug_net_init() != 0) {
+        DEBUG_WARN("Retry connect to debug server in 2s...");
+        osal_task_delay(2000);
     }
 
-    printf("main start\r\n");
-    while (1)
-    {
-        /* 喂狗：主循环任一环节阻塞超过3s即复位 */
-        IWDG_Feed();
-        /* 内核调度：软件定时器调度+诊断轮询+喂狗 */
-        osal_task_loop();
-        /* 升级窗口开启期间业务让路：对齐备份工程升级时主循环仅内核调度，
-           保证升级口数据泵实时性，防止业务拖慢主循环导致环缓冲溢出丢包 */
-        if (!FW_UPG_YM_IsArmed()) {
-            /* 业务调度：传感器采集轮询/状态指示/告警上报 */
-            app_gateway_loop();
+    /* 发送欢迎消息 */
+    debug_net_send((const uint8_t *)welcome, strlen(welcome));
+    DEBUG_INFO("NetDebug task started");
+
+    while (1) {
+        /* 接收上位机数据 */
+        ret = debug_net_recv(recv_buffer, sizeof(recv_buffer), 100);
+        if (ret > 0) {
+            /* 回显数据 */
+            debug_net_send(recv_buffer, (uint32_t)ret);
+
+            /* 打印实际数据内容 */
+            if (ret < (int)sizeof(recv_buffer)) {
+                recv_buffer[ret] = '\0';
+            } else {
+                recv_buffer[sizeof(recv_buffer) - 1] = '\0';
+            }
+            DEBUG_INFO("Recv from PC: %s", (char *)recv_buffer);
+        } else if (ret < 0) {
+            /* 连接断开，重新连接 */
+            DEBUG_WARN("Connection lost, reconnecting...");
+            debug_net_close();
+            osal_task_delay(2000);
+
+            while (debug_net_init() != 0) {
+                DEBUG_WARN("Retry connect to debug server in 2s...");
+                osal_task_delay(2000);
+            }
+
+            debug_net_send((const uint8_t *)welcome, strlen(welcome));
         }
+
+        /* 发送心跳（每10秒） */
+        heartbeat_cnt++;
+        if (heartbeat_cnt >= 100) {
+            heartbeat_cnt = 0;
+            if (debug_net_is_connected()) {
+                debug_net_send((const uint8_t *)heartbeat, strlen(heartbeat));
+            }
+        }
+
+        osal_task_delay(100);
+    }
+}
+
+/*******************************************************************************
+** 函数名称    Sensor_Task
+** 函数说明    传感器采集任务
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void Sensor_Task(void *pvParameters)
+{
+    (void)pvParameters;
+    SensorData_t sensor_data;
+
+    while (1) {
+        /* 采集传感器数据 */
+        if (sensor_manager_get_data(&sensor_data) == 0) {
+            DEBUG_INFO("Sensor Data: Temp=%.1f, Hum=%.1f, Light=%.1f, Smoke=%.1f",
+                       sensor_data.temperature, sensor_data.humidity,
+                       sensor_data.light_value, sensor_data.smoke_value);
+        }
+
+        osal_task_delay(5000);  /* 每5秒采集一次 */
+    }
+}
+
+/*******************************************************************************
+** 函数名称    Cloud_Task
+** 函数说明    云平台通信任务
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void Cloud_Task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    /* 等待网络就绪 */
+    osal_task_delay(5000);
+
+    /* 连接云平台 */
+    if (cloud_manager_connect() == 0) {
+        DEBUG_INFO("Cloud connected");
+    } else {
+        DEBUG_WARN("Cloud connection failed");
+    }
+
+    while (1) {
+        /* 云平台通信处理 */
+        osal_task_delay(1000);
+    }
+}
+
+/*******************************************************************************
+** 函数名称    Camera_Task
+** 函数说明    摄像头采集任务
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void Camera_Task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    while (1) {
+        /* 摄像头采集处理 */
+        osal_task_delay(1000);
+    }
+}
+
+/*******************************************************************************
+** 函数名称    LCD_Task
+** 函数说明    LCD显示任务
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void LCD_Task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    while (1) {
+        /* LCD显示处理 */
+        osal_task_delay(100);
+    }
+}
+
+/*******************************************************************************
+** 函数名称    NTP_Task
+** 函数说明    NTP时间同步任务
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void NTP_Task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    while (1) {
+        /* NTP时间同步处理 */
+        osal_task_delay(60000);  /* 每分钟同步一次 */
+    }
+}
+
+/*******************************************************************************
+** 函数名称    OTA_Task
+** 函数说明    OTA升级任务
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void OTA_Task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    while (1) {
+        /* OTA升级处理 */
+        osal_task_delay(10000);
+    }
+}
+
+/*******************************************************************************
+** 函数名称    Monitor_Task
+** 函数说明    系统监控任务
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void Monitor_Task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    while (1) {
+        /* 打印系统状态 */
+        DEBUG_INFO("========== System Status ==========");
+        DEBUG_INFO("Heap free: %d bytes", xPortGetFreeHeapSize());
+        DEBUG_INFO("Uptime: %d seconds", xTaskGetTickCount() / configTICK_RATE_HZ);
+        DEBUG_INFO("===================================");
+
+        osal_task_delay(10000);  /* 每10秒打印一次 */
+    }
+}
+
+/*******************************************************************************
+** 函数名称    Net_Init_Task
+** 函数说明    网络初始化任务
+** 输入参数    pvParameters - 任务参数
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+static void Net_Init_Task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    /* 初始化LWIP网络栈 */
+    DEBUG_INFO("Initializing LWIP...");
+    TCPIP_Init();
+    DEBUG_INFO("LWIP initialized");
+
+    /* 删除自身任务 */
+    vTaskDelete(NULL);
+}
+
+/*******************************************************************************
+** 函数名称    main
+** 函数说明    主函数
+** 输入参数    无
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+int main(void)
+{
+    /* 硬件初始化 */
+    BSP_Init();
+    
+    DEBUG_INFO("========================================");
+    DEBUG_INFO("STM32 IoT Terminal Starting...");
+    DEBUG_INFO("Software Version: %s", SOFTWARE_VERSION);
+    DEBUG_INFO("Hardware Version: %s", HARDWARE_VERSION);
+    DEBUG_INFO("Target IP: %d.%d.%d.%d",
+               LOCAL_IP_ADDR0, LOCAL_IP_ADDR1,
+               LOCAL_IP_ADDR2, LOCAL_IP_ADDR3);
+    DEBUG_INFO("Debug Server: %d.%d.%d.%d:%d",
+               DEBUG_SERVER_IP0, DEBUG_SERVER_IP1,
+               DEBUG_SERVER_IP2, DEBUG_SERVER_IP3,
+               DEBUG_SERVER_PORT);
+    DEBUG_INFO("========================================");
+
+    /* 初始化驱动管理器 */
+    drv_manager_init();
+    
+    /* 初始化各驱动模块 */
+    drv_led_init();
+    drv_sensor_init();
+    drv_camera_init();
+    drv_lcd_init();
+    drv_key_init();
+    
+    /* 初始化组件管理器 */
+    sensor_manager_init();
+    cloud_manager_init();
+    net_manager_init();
+    ota_manager_init();
+
+    /* 创建网络初始化任务 */
+    osal_task_create(&task_net_init, "Net_Init_Task", Net_Init_Task, NULL,
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_HIGH);
+
+    /* 创建任务（暂时屏蔽，仅保留网络调试任务） */
+#if 0
+    osal_task_create(&task_led, "LED_Task", LED_Task, NULL,
+                     TASK_STACK_SIZE_SMALL, TASK_PRIO_LOW);
+
+    osal_task_create(&task_sensor, "Sensor_Task", Sensor_Task, NULL,
+                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_NORMAL);
+
+    osal_task_create(&task_cloud, "Cloud_Task", Cloud_Task, NULL,
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_NORMAL);
+
+    osal_task_create(&task_camera, "Camera_Task", Camera_Task, NULL,
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_LOW);
+
+    osal_task_create(&task_lcd, "LCD_Task", LCD_Task, NULL,
+                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_LOW);
+
+    osal_task_create(&task_ntp, "NTP_Task", NTP_Task, NULL,
+                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_LOW);
+
+    osal_task_create(&task_ota, "OTA_Task", OTA_Task, NULL,
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_LOW);
+
+    osal_task_create(&task_monitor, "Monitor_Task", Monitor_Task, NULL,
+                     TASK_STACK_SIZE_SMALL, TASK_PRIO_LOW);
+#endif
+
+    /* 网络调试任务（依赖网络初始化任务） */
+    osal_task_create(&task_net_debug, "NetDebug_Task", NetDebug_Task, NULL,
+                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_NORMAL);
+
+    DEBUG_INFO("All tasks created, starting scheduler...");
+
+    /* 启动调度器 */
+    vTaskStartScheduler();
+
+    /* 不应该执行到这里 */
+    while (1) {
     }
 }
