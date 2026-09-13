@@ -1199,7 +1199,7 @@
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
       <PathWithFileName>..\App\main.c</PathWithFileName>
-      <FilenameWithoutPath>main_new.c</FilenameWithoutPath>
+      <FilenameWithoutPath>main.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>

@@ -11,6 +11,7 @@
 #include "../Config/task_config.h"
 #include "../OSAL/osal.h"
 #include "../Tools/debug.h"
+#include "app_config.h"
 
 /* 驱动层头文件 */
 #include "../Platform/drv_manager.h"
@@ -41,12 +42,24 @@
 
 /* 任务句柄 */
 static osal_task_t task_led;
+#if APP_ENABLE_SENSOR
 static osal_task_t task_sensor;
+#endif
+#if APP_ENABLE_CLOUD
 static osal_task_t task_cloud;
+#endif
+#if APP_ENABLE_CAMERA
 static osal_task_t task_camera;
+#endif
+#if APP_ENABLE_LCD
 static osal_task_t task_lcd;
+#endif
+#if APP_ENABLE_NTP
 static osal_task_t task_ntp;
+#endif
+#if APP_ENABLE_OTA
 static osal_task_t task_ota;
+#endif
 static osal_task_t task_net_init;
 static osal_task_t task_net_debug;
 static osal_task_t task_monitor;
@@ -64,12 +77,24 @@ extern uint32_t xPortGetFreeHeapSize(void);
 
 /* 任务函数声明 */
 static void LED_Task(void *pvParameters);
+#if APP_ENABLE_SENSOR
 static void Sensor_Task(void *pvParameters);
+#endif
+#if APP_ENABLE_CLOUD
 static void Cloud_Task(void *pvParameters);
+#endif
+#if APP_ENABLE_CAMERA
 static void Camera_Task(void *pvParameters);
+#endif
+#if APP_ENABLE_LCD
 static void LCD_Task(void *pvParameters);
+#endif
+#if APP_ENABLE_NTP
 static void NTP_Task(void *pvParameters);
+#endif
+#if APP_ENABLE_OTA
 static void OTA_Task(void *pvParameters);
+#endif
 static void Monitor_Task(void *pvParameters);
 static void Net_Init_Task(void *pvParameters);
 
@@ -91,7 +116,7 @@ static void LED_Task(void *pvParameters)
 
     while (1) {
         LED1_TOGGLE;
-        osal_task_delay(500);
+        osal_task_delay(APP_LED_TOGGLE_PERIOD_MS);
     }
 }
 
@@ -107,8 +132,8 @@ static void NetDebug_Task(void *pvParameters)
     uint8_t recv_buffer[256];
     int ret;
     uint32_t heartbeat_cnt = 0;
-    const char *welcome = "STM32 IoT Terminal Connected!\r\n";
-    const char *heartbeat = "HEARTBEAT\r\n";
+    const char *welcome = APP_NET_DEBUG_WELCOME;
+    const char *heartbeat = APP_NET_DEBUG_HEARTBEAT;
 
     (void)pvParameters;
 
@@ -119,7 +144,7 @@ static void NetDebug_Task(void *pvParameters)
     /* 初始化网络调试 */
     while (debug_net_init() != 0) {
         DEBUG_WARN("Retry connect to debug server in 2s...");
-        osal_task_delay(2000);
+        osal_task_delay(APP_NET_DEBUG_RECONNECT_MS);
     }
 
     /* 发送欢迎消息 */
@@ -128,7 +153,7 @@ static void NetDebug_Task(void *pvParameters)
 
     while (1) {
         /* 接收上位机数据 */
-        ret = debug_net_recv(recv_buffer, sizeof(recv_buffer), 100);
+        ret = debug_net_recv(recv_buffer, sizeof(recv_buffer), APP_NET_DEBUG_RECV_TIMEOUT);
         if (ret > 0) {
             /* 回显数据 */
             debug_net_send(recv_buffer, (uint32_t)ret);
@@ -144,19 +169,19 @@ static void NetDebug_Task(void *pvParameters)
             /* 连接断开，重新连接 */
             DEBUG_WARN("Connection lost, reconnecting...");
             debug_net_close();
-            osal_task_delay(2000);
+            osal_task_delay(APP_NET_DEBUG_RECONNECT_MS);
 
             while (debug_net_init() != 0) {
                 DEBUG_WARN("Retry connect to debug server in 2s...");
-                osal_task_delay(2000);
+                osal_task_delay(APP_NET_DEBUG_RECONNECT_MS);
             }
 
             debug_net_send((const uint8_t *)welcome, strlen(welcome));
         }
 
-        /* 发送心跳（每10秒） */
+        /* 发送心跳（默认每10秒） */
         heartbeat_cnt++;
-        if (heartbeat_cnt >= 100) {
+        if (heartbeat_cnt >= (APP_NET_DEBUG_HEARTBEAT_MS / APP_NET_DEBUG_RECV_TIMEOUT)) {
             heartbeat_cnt = 0;
             if (debug_net_is_connected()) {
                 debug_net_send((const uint8_t *)heartbeat, strlen(heartbeat));
@@ -167,6 +192,7 @@ static void NetDebug_Task(void *pvParameters)
     }
 }
 
+#if APP_ENABLE_SENSOR
 /*******************************************************************************
 ** 函数名称    Sensor_Task
 ** 函数说明    传感器采集任务
@@ -190,7 +216,9 @@ static void Sensor_Task(void *pvParameters)
         osal_task_delay(5000);  /* 每5秒采集一次 */
     }
 }
+#endif
 
+#if APP_ENABLE_CLOUD
 /*******************************************************************************
 ** 函数名称    Cloud_Task
 ** 函数说明    云平台通信任务
@@ -217,7 +245,9 @@ static void Cloud_Task(void *pvParameters)
         osal_task_delay(1000);
     }
 }
+#endif
 
+#if APP_ENABLE_CAMERA
 /*******************************************************************************
 ** 函数名称    Camera_Task
 ** 函数说明    摄像头采集任务
@@ -234,7 +264,9 @@ static void Camera_Task(void *pvParameters)
         osal_task_delay(1000);
     }
 }
+#endif
 
+#if APP_ENABLE_LCD
 /*******************************************************************************
 ** 函数名称    LCD_Task
 ** 函数说明    LCD显示任务
@@ -251,7 +283,9 @@ static void LCD_Task(void *pvParameters)
         osal_task_delay(100);
     }
 }
+#endif
 
+#if APP_ENABLE_NTP
 /*******************************************************************************
 ** 函数名称    NTP_Task
 ** 函数说明    NTP时间同步任务
@@ -268,7 +302,9 @@ static void NTP_Task(void *pvParameters)
         osal_task_delay(60000);  /* 每分钟同步一次 */
     }
 }
+#endif
 
+#if APP_ENABLE_OTA
 /*******************************************************************************
 ** 函数名称    OTA_Task
 ** 函数说明    OTA升级任务
@@ -285,6 +321,7 @@ static void OTA_Task(void *pvParameters)
         osal_task_delay(10000);
     }
 }
+#endif
 
 /*******************************************************************************
 ** 函数名称    Monitor_Task
@@ -304,7 +341,7 @@ static void Monitor_Task(void *pvParameters)
         DEBUG_INFO("Uptime: %d seconds", xTaskGetTickCount() / configTICK_RATE_HZ);
         DEBUG_INFO("===================================");
 
-        osal_task_delay(10000);  /* 每10秒打印一次 */
+        osal_task_delay(APP_MONITOR_PERIOD_MS);  /* 默认每10秒打印一次 */
     }
 }
 
@@ -373,36 +410,48 @@ int main(void)
     osal_task_create(&task_net_init, "Net_Init_Task", Net_Init_Task, NULL,
                      TASK_STACK_SIZE_LARGE, TASK_PRIO_HIGH);
 
-    /* 创建任务（暂时屏蔽，仅保留网络调试任务） */
-#if 0
+    /* 第一阶段任务：LED闪烁 + 网络调试 + 系统监控 */
+#if APP_ENABLE_LED
     osal_task_create(&task_led, "LED_Task", LED_Task, NULL,
-                     TASK_STACK_SIZE_SMALL, TASK_PRIO_LOW);
-
-    osal_task_create(&task_sensor, "Sensor_Task", Sensor_Task, NULL,
-                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_NORMAL);
-
-    osal_task_create(&task_cloud, "Cloud_Task", Cloud_Task, NULL,
-                     TASK_STACK_SIZE_LARGE, TASK_PRIO_NORMAL);
-
-    osal_task_create(&task_camera, "Camera_Task", Camera_Task, NULL,
-                     TASK_STACK_SIZE_LARGE, TASK_PRIO_LOW);
-
-    osal_task_create(&task_lcd, "LCD_Task", LCD_Task, NULL,
-                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_LOW);
-
-    osal_task_create(&task_ntp, "NTP_Task", NTP_Task, NULL,
-                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_LOW);
-
-    osal_task_create(&task_ota, "OTA_Task", OTA_Task, NULL,
-                     TASK_STACK_SIZE_LARGE, TASK_PRIO_LOW);
-
-    osal_task_create(&task_monitor, "Monitor_Task", Monitor_Task, NULL,
                      TASK_STACK_SIZE_SMALL, TASK_PRIO_LOW);
 #endif
 
     /* 网络调试任务（依赖网络初始化任务） */
+#if APP_ENABLE_NET_DEBUG
     osal_task_create(&task_net_debug, "NetDebug_Task", NetDebug_Task, NULL,
                      TASK_STACK_SIZE_MEDIUM, TASK_PRIO_NORMAL);
+#endif
+
+#if APP_ENABLE_MONITOR
+    osal_task_create(&task_monitor, "Monitor_Task", Monitor_Task, NULL,
+                     TASK_STACK_SIZE_SMALL, TASK_PRIO_LOW);
+#endif
+
+    /* 第二阶段任务（组件层实现后启用） */
+#if APP_ENABLE_SENSOR
+    osal_task_create(&task_sensor, "Sensor_Task", Sensor_Task, NULL,
+                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_NORMAL);
+#endif
+#if APP_ENABLE_CLOUD
+    osal_task_create(&task_cloud, "Cloud_Task", Cloud_Task, NULL,
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_NORMAL);
+#endif
+#if APP_ENABLE_CAMERA
+    osal_task_create(&task_camera, "Camera_Task", Camera_Task, NULL,
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_LOW);
+#endif
+#if APP_ENABLE_LCD
+    osal_task_create(&task_lcd, "LCD_Task", LCD_Task, NULL,
+                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_LOW);
+#endif
+#if APP_ENABLE_NTP
+    osal_task_create(&task_ntp, "NTP_Task", NTP_Task, NULL,
+                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_LOW);
+#endif
+#if APP_ENABLE_OTA
+    osal_task_create(&task_ota, "OTA_Task", OTA_Task, NULL,
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_LOW);
+#endif
 
     DEBUG_INFO("All tasks created, starting scheduler...");
 
