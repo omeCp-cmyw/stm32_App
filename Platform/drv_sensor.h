@@ -16,7 +16,6 @@
 typedef enum {
     SENSOR_TYPE_DHT11 = 0,
     SENSOR_TYPE_LIGHT,
-    SENSOR_TYPE_SMOKE,
     SENSOR_TYPE_MQ2,
     SENSOR_TYPE_MAX
 } SensorType_e;

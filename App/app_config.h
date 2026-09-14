@@ -17,9 +17,9 @@
 #define APP_ENABLE_NET_DEBUG        0   /* 使能网络调试任务 */
 #define APP_ENABLE_MONITOR          1   /* 使能系统监控任务 */
 
-/* 第二阶段任务使能开关（组件层实现后启用，当前默认关闭） */
-#define APP_ENABLE_SENSOR           0   /* 使能传感器采集任务 */
-#define APP_ENABLE_CLOUD            0   /* 使能云平台通信任务 */
+/* 第二阶段任务使能开关（组件层已实现，传感器与云平台默认开启） */
+#define APP_ENABLE_SENSOR           1   /* 使能传感器采集任务 */
+#define APP_ENABLE_CLOUD            1   /* 使能云平台通信任务 */
 #define APP_ENABLE_CAMERA           0   /* 使能摄像头任务 */
 #define APP_ENABLE_LCD              0   /* 使能LCD显示任务 */
 #define APP_ENABLE_NTP              0   /* 使能NTP时间同步任务 */
@@ -37,5 +37,11 @@
 
 /* 系统监控任务配置 */
 #define APP_MONITOR_PERIOD_MS       10000       /* 监控打印周期(ms) */
+
+/* 传感器采集任务配置 */
+#define APP_SENSOR_COLLECT_PERIOD_MS 10000      /* 传感器采集周期(ms) */
+
+/* 云平台通信任务配置 */
+#define APP_CLOUD_STATUS_PERIOD_MS  1000        /* 云状态监控周期(ms) */
 
 #endif /* __APP_CONFIG_H */

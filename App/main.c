@@ -32,6 +32,9 @@
 #include "../Platform/drv_uart/bsp_debug_usart.h"
 #include "../Platform/drv_led/bsp_led.h"
 #include "../Platform/drv_eth/bsp_eth.h"
+#include "../Tools/dwt_delay/core_delay.h"
+#include "lwip/netif.h"
+#include "lwip/ip_addr.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -61,8 +64,12 @@ static osal_task_t task_ntp;
 static osal_task_t task_ota;
 #endif
 static osal_task_t task_net_init;
+#if APP_ENABLE_NET_DEBUG
 static osal_task_t task_net_debug;
+#endif
+#if APP_ENABLE_MONITOR
 static osal_task_t task_monitor;
+#endif
 
 /* 全局变量 */
 QueueHandle_t MQTT_Data_Queue = NULL;
@@ -95,7 +102,12 @@ static void NTP_Task(void *pvParameters);
 #if APP_ENABLE_OTA
 static void OTA_Task(void *pvParameters);
 #endif
+#if APP_ENABLE_MONITOR
 static void Monitor_Task(void *pvParameters);
+#endif
+#if APP_ENABLE_NET_DEBUG
+static void NetDebug_Task(void *pvParameters);
+#endif
 static void Net_Init_Task(void *pvParameters);
 
 /* configTICK_RATE_HZ定义 */
@@ -120,6 +132,7 @@ static void LED_Task(void *pvParameters)
     }
 }
 
+#if APP_ENABLE_NET_DEBUG
 /*******************************************************************************
 ** 函数名称    NetDebug_Task
 ** 函数说明    网络调试任务，与上位机通信
@@ -191,29 +204,58 @@ static void NetDebug_Task(void *pvParameters)
         osal_task_delay(100);
     }
 }
+#endif /* APP_ENABLE_NET_DEBUG */
 
 #if APP_ENABLE_SENSOR
 /*******************************************************************************
 ** 函数名称    Sensor_Task
-** 函数说明    传感器采集任务
+** 函数说明    传感器采集任务（真实采集并上报云平台）
 ** 输入参数    pvParameters - 任务参数
 ** 输出参数    无
 ** 返回参数    无
 *******************************************************************************/
 static void Sensor_Task(void *pvParameters)
 {
-    (void)pvParameters;
     SensorData_t sensor_data;
+    CloudMessage_t cloud_msg;
+    uint32_t sub_cnt;
+
+    (void)pvParameters;
+
+    /* 启动采集 */
+    sensor_manager_start_collect();
 
     while (1) {
-        /* 采集传感器数据 */
-        if (sensor_manager_get_data(&sensor_data) == 0) {
-            DEBUG_INFO("Sensor Data: Temp=%.1f, Hum=%.1f, Light=%.1f, Smoke=%.1f",
-                       sensor_data.temperature, sensor_data.humidity,
-                       sensor_data.light_value, sensor_data.smoke_value);
+        /* MQ2气体按参考工程1s周期快速采样并做防抖判断(规则在cloud层),
+         * 主周期(10s)到点后整体采集上报 */
+        for (sub_cnt = 0; sub_cnt < APP_SENSOR_COLLECT_PERIOD_MS / 1000U; sub_cnt++) {
+            SensorData_t smoke_data;
+
+            if (drv_sensor_read(SENSOR_TYPE_MQ2, &smoke_data) == 0) {
+                cloud_smoke_rule_update((uint16_t)smoke_data.smoke_value);
+            }
+            osal_task_delay(1000);
         }
 
-        osal_task_delay(5000);  /* 每5秒采集一次 */
+        /* 采集传感器数据 */
+        if (sensor_manager_get_data(&sensor_data) == 0) {
+            DEBUG_INFO("Sensor Data: Temp=%.1f, Hum=%.1f, Light=%.1fmV, MQ2=%.1fmV",
+                       sensor_data.temperature, sensor_data.humidity,
+                       sensor_data.light_value, sensor_data.smoke_value);
+
+            /* 上报云平台 */
+            cloud_msg.type = MSG_TYPE_SENSOR_DATA;
+            cloud_msg.payload = (uint8_t *)&sensor_data;
+            cloud_msg.payload_len = sizeof(sensor_data);
+            cloud_msg.timestamp = sensor_data.timestamp;
+            if (cloud_manager_send_message(&cloud_msg) != 0) {
+                DEBUG_WARN("Sensor data report failed");
+            }
+        } else {
+            DEBUG_WARN("Sensor collect failed");
+        }
+
+        osal_task_delay(APP_SENSOR_COLLECT_PERIOD_MS);
     }
 }
 #endif
@@ -221,28 +263,50 @@ static void Sensor_Task(void *pvParameters)
 #if APP_ENABLE_CLOUD
 /*******************************************************************************
 ** 函数名称    Cloud_Task
-** 函数说明    云平台通信任务
+** 函数说明    云平台通信任务（启动MQTT线程并监控连接状态）
 ** 输入参数    pvParameters - 任务参数
 ** 输出参数    无
 ** 返回参数    无
 *******************************************************************************/
 static void Cloud_Task(void *pvParameters)
 {
+    CloudState_e last_state = CLOUD_STATE_DISCONNECTED;
+    extern struct netif gnetif;
+    uint32_t wait_cnt = 0;
+
     (void)pvParameters;
 
-    /* 等待网络就绪 */
-    osal_task_delay(5000);
+    /* 等待网络就绪（Net_Init_Task完成LwIP初始化且DHCP分配IP），
+     * 固定延时不可靠: DHCP耗时不定, 未就绪时DNS解析会拿到0.0.0.0 */
+    DEBUG_INFO("Waiting for network...");
+    while (!(netif_is_up(&gnetif) && !ip_addr_isany(&gnetif.ip_addr))) {
+        osal_task_delay(500);
+        if (++wait_cnt >= 60) {  /* 最长等30s, 之后交给MQTT线程DNS重试兜底 */
+            DEBUG_WARN("Network not ready in 30s, start MQTT anyway");
+            break;
+        }
+    }
 
-    /* 连接云平台 */
+    /* 启动MQTT收发线程（连接/重连由线程内部自理） */
     if (cloud_manager_connect() == 0) {
-        DEBUG_INFO("Cloud connected");
+        DEBUG_INFO("Cloud manager started");
     } else {
-        DEBUG_WARN("Cloud connection failed");
+        DEBUG_ERROR("Cloud manager start failed");
     }
 
     while (1) {
-        /* 云平台通信处理 */
-        osal_task_delay(1000);
+        /* 状态变化时打印 */
+        CloudState_e state = cloud_manager_get_state();
+        if (state != last_state) {
+            last_state = state;
+            if (state == CLOUD_STATE_CONNECTED) {
+                DEBUG_INFO("Cloud connected (OneNET MQTT)");
+            } else {
+                DEBUG_WARN("Cloud state: %d", state);
+            }
+        }
+
+        osal_task_delay(APP_CLOUD_STATUS_PERIOD_MS);
     }
 }
 #endif
@@ -323,6 +387,7 @@ static void OTA_Task(void *pvParameters)
 }
 #endif
 
+#if APP_ENABLE_MONITOR
 /*******************************************************************************
 ** 函数名称    Monitor_Task
 ** 函数说明    系统监控任务
@@ -344,6 +409,7 @@ static void Monitor_Task(void *pvParameters)
         osal_task_delay(APP_MONITOR_PERIOD_MS);  /* 默认每10秒打印一次 */
     }
 }
+#endif /* APP_ENABLE_MONITOR */
 
 /*******************************************************************************
 ** 函数名称    Net_Init_Task
@@ -377,25 +443,17 @@ int main(void)
     /* 硬件初始化 */
     BSP_Init();
     
-    DEBUG_INFO("========================================");
-    DEBUG_INFO("STM32 IoT Terminal Starting...");
-    DEBUG_INFO("Software Version: %s", SOFTWARE_VERSION);
-    DEBUG_INFO("Hardware Version: %s", HARDWARE_VERSION);
-    DEBUG_INFO("Target IP: %d.%d.%d.%d",
-               LOCAL_IP_ADDR0, LOCAL_IP_ADDR1,
-               LOCAL_IP_ADDR2, LOCAL_IP_ADDR3);
-    DEBUG_INFO("Debug Server: %d.%d.%d.%d:%d",
-               DEBUG_SERVER_IP0, DEBUG_SERVER_IP1,
-               DEBUG_SERVER_IP2, DEBUG_SERVER_IP3,
-               DEBUG_SERVER_PORT);
-    DEBUG_INFO("========================================");
+    /* 使能DWT CYCCNT计数器（DHT11等驱动依赖Delay_us/Delay_ms精确延时，
+     * 未初始化时CPU_TS_TmrRd恒返0会导致延时函数死循环） */
+    CPU_TS_TmrInit();
+    
+    DEBUG_INFO("STM32 IoT Terminal V%s starting...", SOFTWARE_VERSION);
 
     /* 初始化驱动管理器 */
     drv_manager_init();
     
-    /* 初始化各驱动模块 */
+    /* 初始化各驱动模块（drv_sensor_init由sensor_manager_init内部调用） */
     drv_led_init();
-    drv_sensor_init();
     drv_camera_init();
     drv_lcd_init();
     drv_key_init();
@@ -430,7 +488,7 @@ int main(void)
     /* 第二阶段任务（组件层实现后启用） */
 #if APP_ENABLE_SENSOR
     osal_task_create(&task_sensor, "Sensor_Task", Sensor_Task, NULL,
-                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_NORMAL);
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_NORMAL);
 #endif
 #if APP_ENABLE_CLOUD
     osal_task_create(&task_cloud, "Cloud_Task", Cloud_Task, NULL,

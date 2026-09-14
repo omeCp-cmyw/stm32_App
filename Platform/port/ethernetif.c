@@ -162,11 +162,9 @@ static void low_level_init(struct netif *netif)
     
   s_xSemaphore = xSemaphoreCreateCounting(40,0);
   
-  if(sys_sem_new(&tx_sem , 0) == ERR_OK)
-    PRINT_DEBUG("sys_sem_new ok\n");
+  (void)sys_sem_new(&tx_sem , 0);
   
-  if(sys_mbox_new(&eth_tx_mb , 50) == ERR_OK)
-    PRINT_DEBUG("sys_mbox_new ok\n");
+  (void)sys_mbox_new(&eth_tx_mb , 50);
 
   /* create the task that handles the ETH_MAC */
 	sys_thread_new("ETHIN",

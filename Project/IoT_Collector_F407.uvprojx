@@ -790,6 +790,16 @@
               <FilePath>..\Components\mqtt\mqttclient.c</FilePath>
             </File>
             <File>
+              <FileName>onenet_token.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\mqtt\onenet_token.c</FilePath>
+            </File>
+            <File>
+              <FileName>md5.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Tools\md5.c</FilePath>
+            </File>
+            <File>
               <FileName>osal.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\OSAL\osal.c</FilePath>
@@ -818,6 +828,11 @@
               <FileName>drv_sensor.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Platform\drv_sensor.c</FilePath>
+            </File>
+            <File>
+              <FileName>drv_adc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\drv_adc\drv_adc.c</FilePath>
             </File>
             <File>
               <FileName>drv_camera.c</FileName>

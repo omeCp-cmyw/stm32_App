@@ -1,4 +1,5 @@
 #include "mqttclient.h"
+#include "onenet_token.h"
 #include "transport.h"
 #include "MQTTPacket.h"
 #include "FreeRTOS.h"
@@ -14,11 +15,11 @@
 #include "lwip/sockets.h"
 
 #include "cJSON_Process.h"
-#include "bsp_dht11.h"
+#include "../../Platform/drv_led/bsp_led.h"
 
 /******************************* 全局变量声明 ************************************/
 /*
- * 当我们在写应用程序的时候，可能需要用到一些全局变量。
+ * 当我们在写应用程序的时候,可能需要用到一些全局变量。
  */
 extern QueueHandle_t MQTT_Data_Queue;
 
@@ -27,6 +28,9 @@ extern QueueHandle_t MQTT_Data_Queue;
 MQTT_USER_MSG  mqtt_user_msg;
 
 int32_t MQTT_Socket = 0;
+
+/* MQTT在线标志（Client_Connect订阅成功后置1,断链/失败清0） */
+static uint8_t s_connected = 0;
 
 
 void deliverMessage(MQTTString *TopicName,MQTTMessage *msg,MQTT_USER_MSG *mqtt_user_msg);
@@ -41,14 +45,24 @@ void deliverMessage(MQTTString *TopicName,MQTTMessage *msg,MQTT_USER_MSG *mqtt_u
 uint8_t MQTT_Connect(void)
 {
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
-    uint8_t buf[200];
+    /* token静态缓冲: 避免登录路径栈峰值(局部200B+组帧512B逼近任务栈极限) */
+    static char token[ONENET_TOKEN_MAX_LEN];
+    uint8_t buf[512];
     int buflen = sizeof(buf);
     int len = 0;
-    data.clientID.cstring = CLIENT_ID;                   //随机
+
+    /* 生成OneNET设备鉴权token(HMAC-MD5签名, 未校时用固定过期时间戳) */
+    if (onenet_token_build(ONENET_TOKEN_ET_FALLBACK, PRODUCT_ID, DEVICE_NAME,
+                           ACCESS_KEY, token, sizeof(token)) != 0)
+    {
+        PRINT_DEBUG("OneNET token build failed\n");
+        return Connect_NOK;
+    }
+    data.clientID.cstring = CLIENT_ID;              //设备名
     data.keepAliveInterval = KEEPLIVE_TIME;         //保持活跃
-    data.username.cstring = USER_NAME;              //用户名
-    data.password.cstring = PASSWORD;               //秘钥
-    data.MQTTVersion = MQTT_VERSION;                //3表示3.1版本，4表示3.11版本
+    data.username.cstring = USER_NAME;              //用户名(产品ID)
+    data.password.cstring = token;                  //鉴权token
+    data.MQTTVersion = MQTT_VERSION;                //3表示3.1版本,4表示3.11版本
     data.cleansession = 1;
     //组装消息
     len = MQTTSerialize_connect((unsigned char *)buf, buflen, &data);
@@ -61,17 +75,17 @@ uint8_t MQTT_Connect(void)
         unsigned char sessionPresent, connack_rc;
         if (MQTTDeserialize_connack(&sessionPresent, &connack_rc, buf, buflen) != 1 || connack_rc != 0)
         {
-          PRINT_DEBUG("无法连接，错误代码是: %d！\n", connack_rc);
+          PRINT_DEBUG("无法连接,错误代码是: %d!\n", connack_rc);
             return Connect_NOK;
         }
         else 
         {
-            PRINT_DEBUG("用户名与秘钥验证成功，MQTT连接成功！\n");
+            PRINT_DEBUG("用户名与秘钥验证成功,MQTT连接成功!\n");
             return Connect_OK;
         }
     }
     else
-        PRINT_DEBUG("MQTT连接无响应！\n");
+        PRINT_DEBUG("MQTT连接无响应!\n");
         return Connect_NOTACK;
 }
 
@@ -126,7 +140,7 @@ int32_t MQTT_PingReq(int32_t sock)
 ************************************************************************/
 int32_t MQTTSubscribe(int32_t sock,char *topic,enum QoS pos)
 {
-	  static uint32_t PacketID = 0;
+	  static uint32_t PacketID = 1;
 	  uint16_t packetidbk = 0;
 	  int32_t conutbk = 0;
 		uint8_t buf[100];
@@ -179,6 +193,138 @@ int32_t MQTTSubscribe(int32_t sock,char *topic,enum QoS pos)
 
 
 /************************************************************************
+** 函数名称: CloudLedApply
+** 函数功能: 应用LED开关期望值: 控灯(绿灯LED2, 避开LED1闪烁任务)+上报led事件
+** 入口参数: int sw: 1开 0关
+** 出口参数: 无
+** 备    注: set下发与desired期望值共用此入口
+************************************************************************/
+static void CloudLedApply(int sw)
+{
+    if (sw)
+    {
+        LED2_ON;
+        PRINT_DEBUG("开启led灯\n");
+    }
+    else
+    {
+        LED2_OFF;
+        PRINT_DEBUG("关闭led灯\n");
+    }
+
+    /* 上报led信息型事件(与平台物模型事件定义一致) */
+    if (mqtt_post_event("led", sw ? "{\"switch\":1}" : "{\"switch\":0}") != 0)
+    {
+        PRINT_DEBUG("led event post failed\n");
+    }
+}
+
+/************************************************************************
+** 函数名称: CloudSetReply						
+** 函数功能: 应答平台物模型属性设置下发(set_reply, id回填平台下发id)
+** 入口参数: MQTT_USER_MSG  *msg：消息结构体指针
+** 出口参数: 无
+** 备    注: 
+************************************************************************/
+static void CloudSetReply(MQTT_USER_MSG *msg)
+{
+    cJSON *root = cJSON_Parse((char *)msg->msg);
+    cJSON *json_id;
+    char reply[160];
+    int len;
+
+    if (root == NULL)
+    {
+        PRINT_DEBUG("set json parse failed\n");
+        return;
+    }
+    json_id = cJSON_GetObjectItem(root, "id");
+    if (json_id == NULL || !cJSON_IsString(json_id))
+    {
+        cJSON_Delete(root);
+        PRINT_DEBUG("set json no id field\n");
+        return;
+    }
+
+    /* 解析params中的led_switch属性(布尔型, 平台直接下发true/false):
+     * {"params":{"led_switch":true}} → 控灯+上报事件 */
+    {
+        cJSON *params = cJSON_GetObjectItem(root, "params");
+        cJSON *led_node = (params != NULL) ? cJSON_GetObjectItem(params, "led_switch") : NULL;
+
+        if (led_node != NULL && (cJSON_IsBool(led_node) || cJSON_IsNumber(led_node)))
+        {
+            CloudLedApply((led_node->valueint != 0) ? 1 : 0);
+        }
+    }
+
+    /* 应答格式: {id回填, code=200成功} */
+    len = snprintf(reply, sizeof(reply),
+                   "{\"id\":\"%s\",\"code\":200,\"msg\":\"success\"}",
+                   json_id->valuestring);
+    cJSON_Delete(root);
+    if (len <= 0 || len >= (int)sizeof(reply))
+    {
+        return;
+    }
+    if (MQTTMsgPublish(MQTT_Socket, (char *)TOPIC_SET_REPLY, QOS0,
+                       (uint8_t *)reply, (uint16_t)len) < 0)
+    {
+        PRINT_DEBUG("set_reply publish failed\n");
+    }
+    else
+    {
+        PRINT_DEBUG("set_reply publish ok: %s\n", reply);
+    }
+}
+
+/************************************************************************
+** 函数名称: CloudDesiredReply
+** 函数功能: 解析desired/get/reply应答, 应用属性期望值
+** 入口参数: MQTT_USER_MSG  *msg：消息结构体指针
+** 出口参数: 无
+** 备    注: 应答格式 {"id":"123","code":200,"data":{"led_switch":true,...}}
+************************************************************************/
+static void CloudDesiredReply(MQTT_USER_MSG *msg)
+{
+    cJSON *root = cJSON_Parse((char *)msg->msg);
+    cJSON *code_node;
+    cJSON *data;
+
+    if (root == NULL)
+    {
+        PRINT_DEBUG("desired reply parse failed\n");
+        return;
+    }
+
+    code_node = cJSON_GetObjectItem(root, "code");
+    if (code_node != NULL && cJSON_IsNumber(code_node) &&
+        code_node->valueint != 0 && code_node->valueint != 200)
+    {
+        PRINT_DEBUG("desired get refused, code=%d\n", code_node->valueint);
+        cJSON_Delete(root);
+        return;
+    }
+
+    /* 期望值在data字段(布尔型属性直接给值): {"data":{"led_switch":true}} */
+    data = cJSON_GetObjectItem(root, "data");
+    if (data != NULL)
+    {
+        cJSON *led_node = cJSON_GetObjectItem(data, "led_switch");
+
+        if (led_node != NULL && (cJSON_IsBool(led_node) || cJSON_IsNumber(led_node)))
+        {
+            CloudLedApply((led_node->valueint != 0) ? 1 : 0);
+        }
+        else
+        {
+            PRINT_DEBUG("desired data has no led_switch value\n");
+        }
+    }
+    cJSON_Delete(root);
+}
+
+/************************************************************************
 ** 函数名称: UserMsgCtl						
 ** 函数功能: 用户消息处理函数
 ** 入口参数: MQTT_USER_MSG  *msg：消息结构体指针
@@ -187,13 +333,11 @@ int32_t MQTTSubscribe(int32_t sock,char *topic,enum QoS pos)
 ************************************************************************/
 void UserMsgCtl(MQTT_USER_MSG  *msg)
 {
-		//这里处理数据只是打印，用户可以在这里添加自己的处理方式
-//   if(msg->msglenth > 2)    //只有当消息长度大于2 "{}" 的时候才去处理它 
-//   {
-      PRINT_DEBUG("*****收到订阅的消息！******\n");
-      //返回后处理消息
-        if(msg->msglenth > 2)    //只有当消息长度大于2 "{}" 的时候才去处理它 
-   {
+		//这里处理数据只是打印,用户可以在这里添加自己的处理方式
+    PRINT_DEBUG("*****收到订阅的消息!******\n");
+
+    if(msg->msglenth > 2)    //只有当消息长度大于2 "{}" 的时候才去处理它 
+    {
       switch(msg->msgqos)
       {
         case 0:
@@ -213,7 +357,27 @@ void UserMsgCtl(MQTT_USER_MSG  *msg)
       PRINT_DEBUG("MQTT>>消息类容：%s\n",msg->msg);	
       PRINT_DEBUG("MQTT>>消息长度：%d\n",msg->msglenth);	 
 
-      Proscess(msg->msg);
+      /* 按物模型topic分发 */
+      if (strcmp((char *)msg->topic, TOPIC_SET) == 0)
+      {
+          /* 平台属性设置下发: 解析id并回set_reply应答 */
+          CloudSetReply(msg);
+      }
+      else if (strcmp((char *)msg->topic, TOPIC_POST_REPLY) == 0)
+      {
+          /* 属性上报应答 */
+          PRINT_DEBUG("property post reply: %s\n", msg->msg);
+      }
+      else if (strcmp((char *)msg->topic, TOPIC_DESIRED_REPLY) == 0)
+      {
+          /* desired期望值回应: 解析data并应用 */
+          CloudDesiredReply(msg);
+      }
+      else if (strcmp((char *)msg->topic, TOPIC_EVENT_REPLY) == 0)
+      {
+          /* 事件上报应答(平台校验结果, 失败时会带错误码) */
+          PRINT_DEBUG("event post reply: %s\n", msg->msg);
+      }
     }
 	  //处理完后销毁数据
 	  msg->valid  = 0;
@@ -271,7 +435,7 @@ int32_t MQTTMsgPublish(int32_t sock, char *topic, int8_t qos, uint8_t* msg, uint
 		if(transport_sendPacketBuffer(buf, len) < 0)	
 				return -2;	
 		
-		//质量等级0，不需要返回
+		//质量等级0,不需要返回
 		if(qos == QOS0)
 		{
 				return 0;
@@ -313,7 +477,7 @@ int32_t MQTTMsgPublish(int32_t sock, char *topic, int8_t qos, uint8_t* msg, uint
 ** 入口参数: int32_t sock:网络描述符
 **           uint8_t *buf:数据缓存区
 **           int32_t buflen:缓冲区大小
-**           uint32_t timeout:超时时间--0-表示直接查询，没有数据立即返回
+**           uint32_t timeout:超时时间--0-表示直接查询,没有数据立即返回
 ** 出口参数: -1：错误,其他--包类型
 ** 备    注: 
 ************************************************************************/
@@ -391,7 +555,7 @@ void mqtt_pktype_ctl(uint8_t packtype,uint8_t *buf,uint32_t buflen)
         //接受消息
         deliverMessage(&receivedTopic,&msg,&mqtt_user_msg);
         
-        //消息质量不同，处理不同
+        //消息质量不同,处理不同
         if(msg.qos == QOS0)
         {
            //QOS0-不需要ACK
@@ -424,11 +588,11 @@ void mqtt_pktype_ctl(uint8_t packtype,uint8_t *buf,uint32_t buflen)
         }		
         break;
 			case  PUBREL:				           
-        //解析包数据，必须包ID相同才可以
+        //解析包数据,必须包ID相同才可以
         rc = MQTTDeserialize_ack(&msg.type,&msg.dup, &msg.id, buf,buflen);
         if((rc != 1)||(msg.type != PUBREL)||(msg.id != mqtt_user_msg.packetid))
           return ;
-        //收到PUBREL，需要处理并抛弃数据
+        //收到PUBREL,需要处理并抛弃数据
         if(mqtt_user_msg.valid == 1)
         {
            //返回后处理消息
@@ -441,11 +605,11 @@ void mqtt_pktype_ctl(uint8_t packtype,uint8_t *buf,uint32_t buflen)
         //发送返回--PUBCOMP
         transport_sendPacketBuffer(buf,len);										
         break;
-			case   PUBACK://等级1客户端推送数据后，服务器返回
+			case   PUBACK://等级1客户端推送数据后,服务器返回
 				break;
-			case   PUBREC://等级2客户端推送数据后，服务器返回
+			case   PUBREC://等级2客户端推送数据后,服务器返回
 				break;
-			case   PUBCOMP://等级2客户端推送PUBREL后，服务器返回
+			case   PUBCOMP://等级2客户端推送PUBREL后,服务器返回
         break;
 			default:
 				break;
@@ -484,34 +648,102 @@ int32_t WaitForPacket(int32_t sock,uint8_t packettype,uint8_t times)
 
 
 
+/************************************************************************
+** 函数名称: mqtt_is_connected							
+** 函数功能: 查询MQTT是否已连接云平台
+** 入口参数: 无
+** 出口参数: 1:已连接在线 0:未连接
+** 备    注: 
+************************************************************************/
+uint8_t mqtt_is_connected(void)
+{
+    return s_connected;
+}
+
+/************************************************************************
+** 函数名称: mqtt_desired_get
+** 函数功能: 获取属性期望值(发布thing/property/desired/get)
+** 入口参数: const char *props_json: 属性名数组JSON(如"[\"led\"]")
+** 出口参数: 0:发送成功 <0:失败
+** 备    注: 平台通过desired/get/reply回应, 由CloudDesiredReply解析应用
+************************************************************************/
+int mqtt_desired_get(const char *props_json)
+{
+    static uint32_t s_desired_id = 0;
+    char body[128];
+    int len;
+
+    if (props_json == NULL)
+    {
+        return -1;
+    }
+
+    /* 请求格式: {"id":"123","version":"1.0","params":["led"]} */
+    len = snprintf(body, sizeof(body),
+                   "{\"id\":\"%u\",\"version\":\"1.0\",\"params\":%s}",
+                   (unsigned)(++s_desired_id), props_json);
+    if (len <= 0 || len >= (int)sizeof(body))
+    {
+        return -1;
+    }
+
+    PRINT_DEBUG("desired get publish: %s\n", body);
+    if (MQTTMsgPublish(MQTT_Socket, (char *)TOPIC_DESIRED_GET, QOS0,
+                       (uint8_t *)body, (uint16_t)len) < 0)
+    {
+        PRINT_DEBUG("desired get publish failed\n");
+        return -1;
+    }
+    return 0;
+}
+
+
+/************************************************************************
+** 函数名称: Client_Connect						
+** 函数功能: 连接云平台服务器并完成MQTT登录与订阅
+** 入口参数: 无
+** 出口参数: 无
+** 备    注: 内部循环重试直至连接成功
+************************************************************************/
 void Client_Connect(void)
 {
-    char* host_ip;
-  
 #if  LWIP_DNS
     ip4_addr_t dns_ip;
-    netconn_gethostbyname(HOST_NAME, &dns_ip);
-    host_ip = ip_ntoa(&dns_ip);
-    PRINT_DEBUG("host name : %s , host_ip : %s\n",HOST_NAME,host_ip);
+    char* host_ip;
 #else
-    host_ip = HOST_NAME;
-#endif  
+    char* host_ip = HOST_NAME;
+#endif
+  
 MQTT_START: 
+    s_connected = 0;
   
 		//创建网络连接
 		PRINT_DEBUG("1.开始连接对应云平台的服务器...\n");
-    PRINT_DEBUG("服务器IP地址：%s，端口号：%0d！\n",host_ip,HOST_PORT);
 		while(1)
 		{
+#if  LWIP_DNS
+				/* 每次重试重新解析: DHCP未就绪/DNS失败时不能拿到0.0.0.0去连,
+				 * 而是等待后重试, 避免用错误IP死循环 */
+				if (netconn_gethostbyname(HOST_NAME, &dns_ip) != ERR_OK ||
+				    ip_addr_isany(&dns_ip))
+				{
+						PRINT_DEBUG("DNS解析失败,等待3秒再尝试...\n");
+						vTaskDelay(3000);
+						continue;
+				}
+				host_ip = ip_ntoa(&dns_ip);
+				PRINT_DEBUG("host name : %s , host_ip : %s\n",HOST_NAME,host_ip);
+#endif
+				PRINT_DEBUG("服务器IP地址: %s,端口号：%0d!\n",host_ip,HOST_PORT);
 				//连接服务器
 				MQTT_Socket = transport_open((int8_t*)host_ip,HOST_PORT);
 				//如果连接服务器成功
 				if(MQTT_Socket >= 0)
 				{
-						PRINT_DEBUG("连接云平台服务器成功！\n");
+						PRINT_DEBUG("连接云平台服务器成功!\n");
 						break;
 				}
-				PRINT_DEBUG("连接云平台服务器失败，等待3秒再尝试重新连接！\n");
+				PRINT_DEBUG("连接云平台服务器失败,等待3秒再尝试重新连接!\n");
 				//等待3秒
 				vTaskDelay(3000);
 		}
@@ -531,7 +763,8 @@ MQTT_START:
 		PRINT_DEBUG("3.开始订阅消息...\n");
 //    //订阅消息
 
-    if(MQTTSubscribe(MQTT_Socket,(char *)TOPIC,QOS1) < 0)
+    /* 物模型接入订阅3个topic: 属性设置下发/上报应答/desired回应 */
+    if(MQTTSubscribe(MQTT_Socket,(char *)TOPIC_SET,QOS1) < 0)
     {
          //重连服务器
          PRINT_DEBUG("客户端订阅消息失败...\n");
@@ -539,50 +772,46 @@ MQTT_START:
          transport_close();
          goto MQTT_START;	   
     }	
+
+    if(MQTTSubscribe(MQTT_Socket,(char *)TOPIC_POST_REPLY,QOS1) < 0)
+    {
+         //重连服务器
+         PRINT_DEBUG("客户端订阅消息失败...\n");
+          //关闭链接
+         transport_close();
+         goto MQTT_START;	   
+    }	
+
+    if(MQTTSubscribe(MQTT_Socket,(char *)TOPIC_DESIRED_REPLY,QOS1) < 0)
+    {
+         //重连服务器
+         PRINT_DEBUG("客户端订阅消息失败...\n");
+          //关闭链接
+         transport_close();
+         goto MQTT_START;	   
+    }	
+
+    if(MQTTSubscribe(MQTT_Socket,(char *)TOPIC_EVENT_REPLY,QOS1) < 0)
+    {
+         //重连服务器
+         PRINT_DEBUG("客户端订阅消息失败...\n");
+          //关闭链接
+         transport_close();
+         goto MQTT_START;	   
+    }	
+    
+    /* 4个topic均收到SUBACK, 订阅成功 */
+    PRINT_DEBUG("物模型topic订阅成功(property/set+post/reply+desired/get/reply+event/post/reply)\n");
+    
+    //连接并订阅成功,置在线标志
+    s_connected = 1;
+
+    /* 上线后主动拉取一次led_switch期望值(desired/get, 由reply异步应用) */
+    (void)mqtt_desired_get("[\"led_switch\"]");
+
 		//无限循环
 		PRINT_DEBUG("4.开始循环接收订阅的消息...\n");
 
-}
-
-/************************************************************************
-** 函数名称: MQTTMsgPublish2dp						
-** 函数功能: 用户推送消息到'$dp'系统主题
-** 入口参数: MQTT_USER_MSG  *msg：消息结构体指针
-** 出口参数: >=0:发送成功 <0:发送失败
-** 备    注: 
-************************************************************************/
-int32_t MQTTMsgPublish2dp(int32_t sock, int8_t qos, int8_t type,uint8_t* msg)
-{
-    int32_t ret;
-    uint16_t msg_len = 0;
-    msg_len = strlen((char *)msg);
-    uint8_t* q = pvPortMalloc(msg_len+3); //目前只支持1、3、4类型的json数据
-      switch (type)
-      {
-        case TopicType1:
-          *(uint8_t*)&q[0] = 0x01;
-          break;
-        case TopicType3:
-          *(uint8_t*)&q[0] = 0x03;
-          break;
-        case TopicType5:
-          *(uint8_t*)&q[0] = 0x05;
-          break;  
-        default:
-          goto publish2dpfail;
-      }
-//      *(uint8_t*)&q[0] = 0x03;
-      *(uint8_t*)&q[1] = ((msg_len)&0xff00)>>8;
-      *(uint8_t*)&q[2] = (msg_len)&0xff;
-      memcpy((uint8_t*)(&q[3]),(uint8_t*)msg,msg_len);
-
-    //发布消息
-    ret = MQTTMsgPublish(MQTT_Socket,(char*)"$dp",qos,(uint8_t*)q,msg_len+3);
-
-publish2dpfail:
-    vPortFree(q);
-    q = NULL;
-    return ret;
 }
 
 /************************************************************************
@@ -612,7 +841,7 @@ void mqtt_thread(void *pvParameters)
 MQTT_START: 
     //开始连接
     Client_Connect();
-    //获取当前滴答，作为心跳包起始时间
+    //获取当前滴答,作为心跳包起始时间
 		curtick = xTaskGetTickCount();
 		while(1)
 		{
@@ -629,26 +858,28 @@ MQTT_START:
 //				//判断MQTT服务器是否有数据
 				if(FD_ISSET(MQTT_Socket,&readfd) != 0)
 				{
-						//读取数据包--注意这里参数为0，不阻塞
+						//读取数据包--注意这里参数为0,不阻塞
 						type = ReadPacketTimeout(MQTT_Socket,buf,buflen,0);
 						if(type != -1)
 						{
 								mqtt_pktype_ctl(type,buf,buflen);
 								//表明有数据交换
 								no_mqtt_msg_exchange = 0;
-								//获取当前滴答，作为心跳包起始时间
+								//获取当前滴答,作为心跳包起始时间
 								curtick = xTaskGetTickCount();
 						}
 				}
 
         //这里主要目的是定时向服务器发送PING保活命令
-        if((xTaskGetTickCount() - curtick) >(KEEPLIVE_TIME/2*1000))
+        //心跳周期取keepalive的1/3(20s): 平台要求60s内必须发PINGREQ,
+        //30s是判定边界无余量, 20s留出安全余量
+        if((xTaskGetTickCount() - curtick) >(KEEPLIVE_TIME/3*1000))
         {
             curtick = xTaskGetTickCount();
             //判断是否有数据交换
             if(no_mqtt_msg_exchange == 0)
             {
-               //如果有数据交换，这次就不需要发送PING消息
+               //如果有数据交换,这次就不需要发送PING消息
                continue;
             }
             
@@ -667,102 +898,106 @@ MQTT_START:
 		}
 
 CLOSE:
-	 //关闭链接
-	 transport_close();
-	 //重新链接服务器
-	 goto MQTT_START;	
+   //关闭链接
+   s_connected = 0;
+   transport_close();
+   //重新链接服务器
+   goto MQTT_START;	
+}
+
+/************************************************************************
+** 函数名称: mqtt_post_event
+** 函数功能: 上报物模型事件(thing/event/post, 信息型事件)
+** 入口参数: const char *event_id: 事件标识符(如"led")
+**           const char *params_json: 事件参数JSON(如"{\"switch\":1}")
+** 出口参数: 0:入队成功 <0:失败
+** 备    注: 消息体组为 {"id":"xx","params":{...}} 后入队, 由mqtt_send发布
+************************************************************************/
+int mqtt_post_event(const char *event_id, const char *params_json)
+{
+    mqtt_report_t *report;
+    int len;
+
+    if (event_id == NULL || params_json == NULL || MQTT_Data_Queue == NULL)
+    {
+        return -1;
+    }
+
+    report = (mqtt_report_t *)pvPortMalloc(sizeof(mqtt_report_t));
+    if (report == NULL)
+    {
+        return -1;
+    }
+
+    report->type = MQTT_REPORT_EVENT;
+    len = snprintf(report->json, sizeof(report->json),
+                   "{\"id\":\"%s\",\"params\":%s}", event_id, params_json);
+    if (len <= 0 || len >= (int)sizeof(report->json))
+    {
+        vPortFree(report);
+        return -1;
+    }
+    report->json_len = (uint16_t)len;
+
+    if (xQueueSend(MQTT_Data_Queue, &report, 0) != pdTRUE)
+    {
+        /* 队列满丢弃 */
+        vPortFree(report);
+        return -1;
+    }
+
+    PRINT_DEBUG("event post queued: %s\n", report->json);
+    return 0;
 }
 
 void mqtt_send(void *pvParameters)
 {
-    int32_t ret;
-    uint8_t no_mqtt_msg_exchange = 1;
-    uint32_t curtick;
-    uint8_t res;
+    mqtt_report_t *report;
 
-    /* 定义一个创建信息返回值，默认为pdTRUE */
-    BaseType_t xReturn = pdTRUE;
-    /* 定义一个接收消息的变量 */
-//    uint32_t* r_data;	
-    DHT11_Data_TypeDef* recv_data;
-    //初始化json数据
-    cJSON* cJSON_Data = NULL;
-    cJSON_Data = cJSON_Data_Init();
-    double a,b;
-//    char test[200];
-    
-MQTT_SEND_START:
-  
-    while(1)
+    (void)pvParameters;
+
+    PRINT_DEBUG("mqtt send thread started\n");
+
+    for (;;)
     {
-        
-    xReturn = xQueueReceive( MQTT_Data_Queue,    /* 消息队列的句柄 */
-                             &recv_data,      /* 发送的消息内容 */
-                             3000); /* 等待时间 3000ms */
-      if(xReturn == pdTRUE)
-      {
-        a = recv_data->temperature;
-        b = recv_data->humidity;
-        PRINT_DEBUG("temperature = %f,humidity = %f\n",a,b);
-        //更新数据      
-        res = cJSON_Update(cJSON_Data,TEMP_NUM,&a);
-        res = cJSON_Update(cJSON_Data,HUM_NUM,&b);
-        
-        if(UPDATE_SUCCESS == res)
+        /* 等待cloud_manager上报请求 */
+        if (xQueueReceive( MQTT_Data_Queue,    /* 消息队列的句柄 */
+                           &report,            /* 收到的上报请求 */
+                           portMAX_DELAY) == pdTRUE)
         {
-            //更新数据成功，
-            char* p = cJSON_Print(cJSON_Data);
-            //发布消息到'$dp'系统主题
-           ret = MQTTMsgPublish2dp(MQTT_Socket,QOS0,TopicType3,(uint8_t*)p);
-           if(ret >= 0)
-           {
-               //表明有数据交换
-               no_mqtt_msg_exchange = 0;
-               //获取当前滴答，作为心跳包起始时间
-               curtick = xTaskGetTickCount();				
-           }
-            vPortFree(p);
-            p = NULL;
+            if (report != NULL)
+            {
+                /* 注意: lwIP第一个socket的fd是0, 必须用>=0判断,
+                 * 否则fd=0时所有上报都会被误丢弃 */
+                if (mqtt_is_connected() && MQTT_Socket >= 0)
+                {
+                    /* 按上报类型选择topic: 属性→property/post, 事件→event/post */
+                    char *topic = (report->type == MQTT_REPORT_EVENT) ?
+                                   (char *)TOPIC_EVENT_POST : (char *)TOPIC_POST;
+
+                    PRINT_DEBUG("report to %s, len=%d\n", topic, report->json_len);
+                    PRINT_DEBUG("report json: %.*s\n",
+                                report->json_len, (char *)report->json);
+                    if (MQTTMsgPublish(MQTT_Socket, topic, QOS0,
+                                       (uint8_t*)report->json, report->json_len) < 0)
+                    {
+                        PRINT_DEBUG("publish failed\n");
+                    }
+                }
+                else
+                {
+                    PRINT_DEBUG("mqtt offline, drop report\n");
+                }
+                vPortFree(report);
+            }
         }
-        else
-          PRINT_DEBUG("update fail\n");
-      }
-      //这里主要目的是定时向服务器发送PING保活命令
-      if((xTaskGetTickCount() - curtick) >(KEEPLIVE_TIME/2*1000))
-      {
-          curtick = xTaskGetTickCount();
-          //判断是否有数据交换
-          if(no_mqtt_msg_exchange == 0)
-          {
-             //如果有数据交换，这次就不需要发送PING消息
-             continue;
-          }
-          
-          if(MQTT_PingReq(MQTT_Socket) < 0)
-          {
-             //重连服务器
-             PRINT_DEBUG("发送保持活性ping失败....\n");
-             goto MQTT_SEND_CLOSE;	 
-          }
-          
-          //心跳成功
-          PRINT_DEBUG("发送保持活性ping作为心跳成功....\n");
-          //表明有数据交换
-          no_mqtt_msg_exchange = 0;
-      } 
-  }
-MQTT_SEND_CLOSE:
-	 //关闭链接
-	 transport_close(); 
-   //开始连接
-   Client_Connect();
-   goto MQTT_SEND_START;
+    }
 }
 
 void
 mqtt_thread_init(void)
 {
   sys_thread_new("mqtt_thread", mqtt_thread, NULL, 512, 6);
-  sys_thread_new("mqtt_send", mqtt_send, NULL, 512, 7);
+  sys_thread_new("mqtt_send", mqtt_send, NULL, 1024, 7);
 }
 

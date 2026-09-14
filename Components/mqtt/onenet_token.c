@@ -1,0 +1,268 @@
+/********************************************************************************
+**
+** 文件名:     onenet_token.c
+** 版权所有:   无
+** 文件描述:   OneNET设备鉴权token生成（sign_str = "et\nmethod\nres\nversion"，
+**             密钥为产品access key的base64解码，HMAC-MD5签名后base64编码，
+**             res与sign再做URL转义，最终拼成version/res/et/method/sign参数串）
+**
+*********************************************************************************/
+
+#include <stdio.h>
+#include <string.h>
+#include "onenet_token.h"
+#include "../../Tools/md5.h"
+
+/* OneNET token协议常量(平台规定, 与具体产品无关) */
+#define TOKEN_VERSION   "2018-10-31"
+#define TOKEN_METHOD    "md5"
+
+static const char BASE64_TABLE[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/* OneNET只规定这些字符需要转义, 其余原样输出不全量转义 */
+static const char URL_SPECIAL[] = "+ /?%#&=";
+
+/*******************************************************************************
+** 函数名称    base64_char_value
+** 函数说明    base64字符转6位值
+** 输入参数    ch: base64字符
+** 输出参数    无
+** 返回参数    0~63合法, -1非法字符
+*******************************************************************************/
+static int base64_char_value(char ch)
+{
+    const char *pos = strchr(BASE64_TABLE, ch);
+
+    if (pos == 0) {
+        return -1;
+    }
+    return (int)(pos - BASE64_TABLE);
+}
+
+/*******************************************************************************
+** 函数名称    base64_decode
+** 函数说明    base64解码为二进制, 自动跳过结尾的'='
+** 输入参数    in: base64串
+**             out_max: 缓冲大小
+** 输出参数    out: 解码缓冲
+** 返回参数    解码字节数, -1非法或缓冲不足
+*******************************************************************************/
+static int base64_decode(const char *in, uint8_t *out, int out_max)
+{
+    int out_len = 0;
+    int bits_used = 0;
+    uint32_t accum = 0;
+
+    while (*in != '\0') {
+        int value;
+
+        if (*in == '=') {
+            in++;
+            continue;
+        }
+        value = base64_char_value(*in);
+        if (value < 0) {
+            return -1;
+        }
+        accum = (accum << 6) | (uint32_t)value;
+        bits_used += 6;
+        if (bits_used >= 8) {
+            if (out_len >= out_max) {
+                return -1;
+            }
+            bits_used -= 8;
+            out[out_len++] = (uint8_t)((accum >> bits_used) & 0xff);
+        }
+        in++;
+    }
+    return out_len;
+}
+
+/*******************************************************************************
+** 函数名称    base64_encode
+** 函数说明    二进制编码为base64串, 不足3字节补'='
+** 输入参数    in: 二进制数据
+**             in_len: 数据长度
+**             out_max: 缓冲大小
+** 输出参数    out: 输出串(含结尾'\0')
+** 返回参数    0成功, -1缓冲不足
+*******************************************************************************/
+static int base64_encode(const uint8_t *in, int in_len, char *out, int out_max)
+{
+    int needed = (in_len + 2) / 3 * 4 + 1;
+    int i, out_pos = 0;
+
+    if (out_max < needed) {
+        return -1;
+    }
+    for (i = 0; i + 2 < in_len; i += 3) {
+        uint32_t group = ((uint32_t)in[i] << 16) |
+                         ((uint32_t)in[i + 1] << 8) | in[i + 2];
+
+        out[out_pos++] = BASE64_TABLE[(group >> 18) & 0x3f];
+        out[out_pos++] = BASE64_TABLE[(group >> 12) & 0x3f];
+        out[out_pos++] = BASE64_TABLE[(group >> 6) & 0x3f];
+        out[out_pos++] = BASE64_TABLE[group & 0x3f];
+    }
+    if (in_len - i == 1) {
+        uint32_t group = (uint32_t)in[i] << 16;
+
+        out[out_pos++] = BASE64_TABLE[(group >> 18) & 0x3f];
+        out[out_pos++] = BASE64_TABLE[(group >> 12) & 0x3f];
+        out[out_pos++] = '=';
+        out[out_pos++] = '=';
+    } else if (in_len - i == 2) {
+        uint32_t group = ((uint32_t)in[i] << 16) | ((uint32_t)in[i + 1] << 8);
+
+        out[out_pos++] = BASE64_TABLE[(group >> 18) & 0x3f];
+        out[out_pos++] = BASE64_TABLE[(group >> 12) & 0x3f];
+        out[out_pos++] = BASE64_TABLE[(group >> 6) & 0x3f];
+        out[out_pos++] = '=';
+    }
+    out[out_pos] = '\0';
+    return 0;
+}
+
+/*******************************************************************************
+** 函数名称    url_encode_value
+** 函数说明    对OneNET规定的特殊字符做URL百分号转义
+** 输入参数    in: 原始值
+**             out_max: 缓冲大小
+** 输出参数    out: 输出串(含结尾'\0')
+** 返回参数    0成功, -1缓冲不足
+*******************************************************************************/
+static int url_encode_value(const char *in, char *out, int out_max)
+{
+    int out_pos = 0;
+
+    while (*in != '\0') {
+        if (strchr(URL_SPECIAL, *in) != 0) {
+            if (out_pos + 4 > out_max) {
+                return -1;
+            }
+            out_pos += snprintf(out + out_pos, (size_t)(out_max - out_pos),
+                                "%%%02X", (unsigned char)*in);
+        } else {
+            if (out_pos + 2 > out_max) {
+                return -1;
+            }
+            out[out_pos++] = *in;
+        }
+        in++;
+    }
+    if (out_pos + 1 > out_max) {
+        return -1;
+    }
+    out[out_pos] = '\0';
+    return 0;
+}
+
+/*******************************************************************************
+** 函数名称    hmac_md5
+** 函数说明    RFC2104 HMAC-MD5, 密钥超块长时先散列
+** 输入参数    key: 密钥
+**             key_len: 密钥长度
+**             msg: 签名消息
+** 输出参数    digest: 16字节签名结果
+** 返回参数    无
+*******************************************************************************/
+static void hmac_md5(const uint8_t *key, int key_len, const char *msg,
+                     uint8_t digest[MD5_DIGEST_LENGTH])
+{
+    uint8_t key_block[MD5_CBLOCK];
+    uint8_t pad_block[MD5_CBLOCK];
+    uint8_t inner_digest[MD5_DIGEST_LENGTH];
+    MD5_CTX ctx;
+    int i;
+
+    memset(key_block, 0, sizeof(key_block));
+    if (key_len > MD5_CBLOCK) {
+        MD5(key, (uint32_t)key_len, key_block);
+    } else {
+        memcpy(key_block, key, (size_t)key_len);
+    }
+
+    /* 内部: md5((key^ipad) || msg) */
+    for (i = 0; i < MD5_CBLOCK; i++) {
+        pad_block[i] = key_block[i] ^ 0x36;
+    }
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, pad_block, MD5_CBLOCK);
+    MD5_Update(&ctx, msg, (uint32_t)strlen(msg));
+    MD5_Final(inner_digest, &ctx);
+
+    /* 外部: md5((key^opad) || inner) */
+    for (i = 0; i < MD5_CBLOCK; i++) {
+        pad_block[i] = key_block[i] ^ 0x5c;
+    }
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, pad_block, MD5_CBLOCK);
+    MD5_Update(&ctx, inner_digest, MD5_DIGEST_LENGTH);
+    MD5_Final(digest, &ctx);
+}
+
+/*******************************************************************************
+** 函数名称    onenet_token_build
+** 函数说明    生成OneNET设备鉴权token: 产品访问密钥做HMAC-MD5密钥，
+**             签名字符串et/method/res/version换行分隔，
+**             sign经base64并URL转义后与参数拼接
+** 输入参数    expire_ts: 过期时间戳(unix秒)
+**             product_id: 产品ID
+**             device_name: 设备名
+**             access_key: 产品访问密钥(base64文本)
+** 输出参数    token: token输出缓冲
+** 返回参数    0: 成功, -1: 失败
+*******************************************************************************/
+int onenet_token_build(uint32_t expire_ts, const char *product_id,
+                       const char *device_name, const char *access_key,
+                       char *token, int token_size)
+{
+    /* 大缓冲静态化: token生成路径栈峰值约1.1KB, 逼近任务栈极限,
+     * 静态化后函数不可重入, 当前仅MQTT登录单点调用, 可安全使用 */
+    static char res[96];
+    static char res_enc[128];
+    static char sign_str[160];
+    static char sign_b64[32];
+    static char sign_enc[40];
+    static uint8_t key_raw[64];
+    static uint8_t hmac_digest[MD5_DIGEST_LENGTH];
+    int key_len, used;
+
+    used = snprintf(res, sizeof(res), "products/%s/devices/%s",
+                    product_id, device_name);
+    if (used < 0 || used >= (int)sizeof(res)) {
+        return -1;
+    }
+
+    key_len = base64_decode(access_key, key_raw, sizeof(key_raw));
+    if (key_len < 0) {
+        return -1;
+    }
+
+    /* 签名消息et/method/res/version顺序无行分隔, 末尾无换行 */
+    used = snprintf(sign_str, sizeof(sign_str), "%u\n%s\n%s\n%s",
+                    (unsigned)expire_ts, TOKEN_METHOD, res, TOKEN_VERSION);
+    if (used < 0 || used >= (int)sizeof(sign_str)) {
+        return -1;
+    }
+
+    hmac_md5(key_raw, key_len, sign_str, hmac_digest);
+    if (base64_encode(hmac_digest, MD5_DIGEST_LENGTH, sign_b64,
+                      sizeof(sign_b64)) != 0) {
+        return -1;
+    }
+    if (url_encode_value(res, res_enc, sizeof(res_enc)) != 0 ||
+        url_encode_value(sign_b64, sign_enc, sizeof(sign_enc)) != 0) {
+        return -1;
+    }
+
+    used = snprintf(token, (size_t)token_size,
+                    "version=%s&res=%s&et=%u&method=%s&sign=%s",
+                    TOKEN_VERSION, res_enc, (unsigned)expire_ts,
+                    TOKEN_METHOD, sign_enc);
+    if (used < 0 || used >= token_size) {
+        return -1;
+    }
+    return 0;
+}

@@ -481,12 +481,8 @@ void TCPIP_Init(void)
   the predefined regular intervals after starting the client.
   You can peek in the netif->dhcp struct for the actual DHCP status.*/
   
-  printf("This example uses DHCP to dynamically assign IP address. If not needed, set LWIP_DHCP to 0 in lwipopts.h\n\n");
-  
   err = dhcp_start(&gnetif);      //开启dhcp
-  if(err == ERR_OK)
-    printf("lwip dhcp init success...\n\n");
-  else
+  if(err != ERR_OK)
     printf("lwip dhcp init fail...\n\n");
   while(ip_addr_cmp(&(gnetif.ip_addr),&ipaddr))   //等待dhcp分配的ip有效
   {

@@ -47,4 +47,32 @@ int cloud_manager_recv_message(CloudMessage_t *msg, uint32_t timeout);
 CloudState_e cloud_manager_get_state(void);
 int cloud_manager_set_reconnect_interval(uint32_t interval);
 
+/*******************************************************************************
+** 函数名称    cloud_manager_post_event
+** 函数说明    上报物模型事件(信息型, 如LED开关事件)
+** 输入参数    event_id: 事件标识符(如"led")
+**             params_json: 事件参数JSON(如"{\"switch\":1}")
+** 输出参数    无
+** 返回参数    0: 成功, -1: 失败
+*******************************************************************************/
+int cloud_manager_post_event(const char *event_id, const char *params_json);
+
+/*******************************************************************************
+** 函数名称    cloud_manager_desired_get
+** 函数说明    获取属性期望值(发布desired/get, 应答由mqtt线程解析应用)
+** 输入参数    props_json: 属性名数组JSON(如"[\"led\"]")
+** 输出参数    无
+** 返回参数    0: 成功, -1: 失败
+*******************************************************************************/
+int cloud_manager_desired_get(const char *props_json);
+
+/*******************************************************************************
+** 函数名称    cloud_smoke_rule_update
+** 函数说明    MQ2气体防抖规则更新: 1s快采样值输入, 连续N次超阈值才翻转告警
+** 输入参数    smoke_mv: MQ2气体ADC电压(mV)
+** 输出参数    无
+** 返回参数    无
+*******************************************************************************/
+void cloud_smoke_rule_update(uint16_t smoke_mv);
+
 #endif /* __CLOUD_MANAGER_H */
