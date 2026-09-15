@@ -76,6 +76,26 @@ static void cloud_add_prop_bool(cJSON *params, const char *key, int b)
 }
 
 /*******************************************************************************
+** 函数名称    cloud_light_percent
+** 函数说明    lux亮度映射为平台0-99亮度值(1lux≈1等级, 超99lux饱和)
+** 输入参数    lux: AP3216C实测照度
+** 输出参数    无
+** 返回参数    0-99亮度值(越界饱和截断)
+*******************************************************************************/
+static int32_t cloud_light_percent(float lux)
+{
+    int32_t v = (int32_t)(lux + 0.5f);
+
+    if (v > 99) {
+        v = 99;
+    }
+    if (v < 0) {
+        v = 0;
+    }
+    return v;
+}
+
+/*******************************************************************************
 ** 函数名称    cloud_smoke_alarm_post
 ** 函数说明    告警状态翻转时立即上报smoke_alarm属性(参考工程cloud_set_property模式)
 ** 输入参数    alarm: 1告警 0解除
@@ -309,6 +329,9 @@ int cloud_manager_send_message(CloudMessage_t *msg)
          * smoke_value/smoke_alarm */
         cloud_add_prop_number(params, "temp_value", sdata->temperature);
         cloud_add_prop_number(params, "humidity_value", sdata->humidity);
+        /* 平台属性light: int32环境亮度, 范围0-99(lux直接映射等级) */
+        cloud_add_prop_number(params, "light",
+                              (int)cloud_light_percent(sdata->light_value));
         cloud_add_prop_number(params, "smoke_value", sdata->smoke_value);
         /* 告警状态取自防抖规则(1s快采持续更新, 非单次比较) */
         cloud_add_prop_bool(params, "smoke_alarm", s_smoke_alarm);

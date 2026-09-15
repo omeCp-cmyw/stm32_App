@@ -121,6 +121,8 @@ int sensor_manager_get_data(SensorData_t *data)
     }
     if (sensor_config.sensor_enable[SENSOR_TYPE_LIGHT]) {
         data->light_value = all_data.light_value;
+        data->ps_data = all_data.ps_data;
+        data->ir_data = all_data.ir_data;
     }
     if (sensor_config.sensor_enable[SENSOR_TYPE_MQ2]) {
         data->smoke_value = all_data.smoke_value;

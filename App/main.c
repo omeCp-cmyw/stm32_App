@@ -239,7 +239,7 @@ static void Sensor_Task(void *pvParameters)
 
         /* 采集传感器数据 */
         if (sensor_manager_get_data(&sensor_data) == 0) {
-            DEBUG_INFO("Sensor Data: Temp=%.1f, Hum=%.1f, Light=%.1fmV, MQ2=%.1fmV",
+            DEBUG_INFO("Sensor Data: Temp=%.1f, Hum=%.1f, Light=%.1flux, MQ2=%.1fmV",
                        sensor_data.temperature, sensor_data.humidity,
                        sensor_data.light_value, sensor_data.smoke_value);
 

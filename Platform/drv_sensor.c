@@ -10,6 +10,7 @@
 #include "drv_sensor.h"
 #include "bsp_dht11.h"
 #include "drv_adc/drv_adc.h"
+#include "drv_ap3216c/bsp_ap3216c.h"
 #include "../Tools/debug.h"
 #include <stdio.h>
 #include <string.h>
@@ -26,10 +27,15 @@ int drv_sensor_init(void)
     /* DHT11单总线引脚初始化（GPIOE3） */
     DHT11_Init();
 
-    /* ADC1两通道初始化（光照PA1/MQ2 PA0） */
+    /* ADC1初始化（MQ2 PA0） */
     drv_adc_init();
 
-    DEBUG_INFO("[DRV_SENSOR] Sensor driver initialized (DHT11 + ADC)");
+    /* AP3216C光照三合一(I2C1: PB8/PB9), 失败不影响其他传感器 */
+    if (ap3216c_init() != 0) {
+        DEBUG_WARN("[DRV_SENSOR] AP3216C init failed");
+    }
+
+    DEBUG_INFO("[DRV_SENSOR] Sensor driver initialized (DHT11 + ADC + AP3216C)");
     return 0;
 }
 
@@ -71,8 +77,8 @@ int drv_sensor_read(SensorType_e type, SensorData_t *data)
             break;
 
         case SENSOR_TYPE_LIGHT:
-            /* 光照传感器ADC电压(mV)，按实际标定曲线换算照度 */
-            data->light_value = (float)drv_adc_read_mv(ADC_CH_LIGHT);
+            /* AP3216C环境光强度(lux, I2C读取) */
+            data->light_value = ap3216c_read_ambient_light();
             data->is_valid = 1;
             break;
 
@@ -115,8 +121,10 @@ int drv_sensor_read_all(SensorData_t *data)
         valid_cnt++;
     }
 
-    /* 光照ADC电压 */
-    data->light_value = (float)drv_adc_read_mv(ADC_CH_LIGHT);
+    /* AP3216C环境光强度(lux) + 接近感应 + 红外 */
+    data->light_value = ap3216c_read_ambient_light();
+    data->ps_data = ap3216c_read_ps_data();
+    data->ir_data = ap3216c_read_ir_data();
     valid_cnt++;
 
     /* MQ2气体ADC电压 */

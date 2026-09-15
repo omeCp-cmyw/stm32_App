@@ -25,8 +25,10 @@ typedef struct {
     SensorType_e type;
     float temperature;
     float humidity;
-    float light_value;
-    float smoke_value;
+    float light_value;      /* 环境光强度(lux, AP3216C ALS) */
+    uint16_t ps_data;       /* 接近感应(AP3216C PS, bit15:1近0远) */
+    uint16_t ir_data;       /* 红外强度(AP3216C IR) */
+    float smoke_value;      /* MQ2气体ADC电压(mV) */
     uint32_t timestamp;
     uint8_t is_valid;
 } SensorData_t;
