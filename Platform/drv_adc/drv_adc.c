@@ -2,7 +2,7 @@
 **
 ** 文件名:     drv_adc.c
 ** 版权所有:   无
-** 文件描述:   该模块主要实现ADC采样驱动（光照/MQ2模拟量采集）
+** 文件描述:   该模块主要实现ADC采样驱动（MQ2模拟量采集）
 **
 *********************************************************************************/
 
@@ -10,10 +10,10 @@
 #include "stm32f4xx_hal.h"
 
 /*
- * ADC1驱动实现：两通道轮询软件触发采样+均值滤波。
+ * ADC1驱动实现：单通道轮询软件触发采样+均值滤波。
  * 依赖: stm32f4xx_hal_adc.c（HAL_ADC_MODULE_ENABLED已启用）。
  * 引脚/通道配置集中在本文件顶部通道表宏，改接线只动表。
- * 参考: STM32F4参考工程 Platform/drv/drv_adc（单通道），扩展为多通道。
+ * 参考: STM32F4参考工程 Platform/drv/drv_adc（单通道）。
  */
 
 #define ADC_FILTER_N    8               /* 均值滤波次数（气敏传感器噪声大） */
@@ -29,15 +29,14 @@ typedef struct {
 } adc_chan_cfg_t;
 
 static const adc_chan_cfg_t s_chan_cfg[ADC_CH_MAX] = {
-    { GPIOA, GPIO_PIN_1, ADC_CHANNEL_1 },    /* ADC_CH_LIGHT: PA1 */
-    { GPIOA, GPIO_PIN_0, ADC_CHANNEL_0 },    /* ADC_CH_MQ2:   PA0 */
+    { GPIOA, GPIO_PIN_0, ADC_CHANNEL_0 },    /* ADC_CH_MQ2: PA0 */
 };
 
 static ADC_HandleTypeDef s_hadc;
 
 /*******************************************************************************
 ** 函数名称    drv_adc_init
-** 函数说明    初始化ADC1两通道（GPIO模拟输入+12bit软件触发配置）
+** 函数说明    初始化ADC1单通道（GPIO模拟输入+12bit软件触发配置）
 ** 输入参数    无
 ** 输出参数    无
 ** 返回参数    无

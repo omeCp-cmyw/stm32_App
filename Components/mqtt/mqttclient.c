@@ -94,7 +94,7 @@ uint8_t MQTT_Connect(void)
 ** 函数名称: MQTT_PingReq								
 ** 函数功能: 发送MQTT心跳包
 ** 入口参数: 无
-** 出口参数: >=0:发送成功 <0:发送失败
+** 出口参数: 0:发送成功 -1:5s超时无响应 -2:无fd可读 -3:非PINGRESP包 -4:发送失败
 ** 备    注: 
 ************************************************************************/
 int32_t MQTT_PingReq(int32_t sock)
@@ -111,18 +111,19 @@ int32_t MQTT_PingReq(int32_t sock)
 	  FD_SET(sock,&readfd);			
 	
 		len = MQTTSerialize_pingreq(buf, buflen);
-		transport_sendPacketBuffer(buf, len);
+		if(transport_sendPacketBuffer(buf, len) < 0)
+			return -4;    /* 发送失败: socket已被断开 */
 	
 		//等待可读事件
 		if(select(sock+1,&readfd,NULL,NULL,&tv) == 0)
-			return -1;
+			return -1;	/* 5s内服务器未响应PINGRESP */
 		
 	  //有可读事件
 		if(FD_ISSET(sock,&readfd) == 0)
 			return -2;
 		
 		if(MQTTPacket_read(buf, buflen, transport_getdata) != PINGRESP)
-			return -3;
+			return -3;	/* 读到的不是PINGRESP(连接被服务器断开等) */
 		
 		return 0;
 	
@@ -832,6 +833,7 @@ void mqtt_thread(void *pvParameters)
 		uint8_t buf[MSG_MAX_LEN];
 		int32_t buflen = sizeof(buf);
     int32_t type;
+    int32_t ping_ret;
     fd_set readfd;
 	  struct timeval tv;      //等待时间
 	  tv.tv_sec = 1;
@@ -868,6 +870,12 @@ MQTT_START:
 								//获取当前滴答,作为心跳包起始时间
 								curtick = xTaskGetTickCount();
 						}
+						else
+						{
+								//连接已被服务器断开, 立即重连而不是等心跳失败才发现
+								PRINT_DEBUG("服务器断开连接,准备重连...\n");
+								goto CLOSE;
+						}
 				}
 
         //这里主要目的是定时向服务器发送PING保活命令
@@ -883,10 +891,11 @@ MQTT_START:
                continue;
             }
             
-            if(MQTT_PingReq(MQTT_Socket) < 0)
+            ping_ret = MQTT_PingReq(MQTT_Socket);
+            if(ping_ret < 0)
             {
                //重连服务器
-               PRINT_DEBUG("发送保持活性ping失败....\n");
+               PRINT_DEBUG("发送保持活性ping失败, code=%d....\n", (int)ping_ret);
                goto CLOSE;	 
             }
             

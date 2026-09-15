@@ -27,6 +27,11 @@
 #include "../Components/net_manager.h"
 #include "../Components/ota_manager.h"
 
+/* Ymodem本地升级（UART3通道，与OTA分离） */
+#include "../Platform/drv_uart/bsp_upgrade_usart.h"
+#include "../FwUpgrade/fw_upgrade.h"
+#include "../FwUpgrade/ymodem/ymodem.h"
+
 /* 原有头文件 */
 #include "stm32f4xx_hal.h"
 #include "../Platform/drv_uart/bsp_debug_usart.h"
@@ -62,6 +67,9 @@ static osal_task_t task_ntp;
 #endif
 #if APP_ENABLE_OTA
 static osal_task_t task_ota;
+#endif
+#if APP_ENABLE_YMODEM
+static osal_task_t task_ymodem;
 #endif
 static osal_task_t task_net_init;
 #if APP_ENABLE_NET_DEBUG
@@ -464,6 +472,13 @@ int main(void)
     net_manager_init();
     ota_manager_init();
 
+#if APP_ENABLE_YMODEM
+    /* 初始化Ymodem本地升级通道：UART3 + 升级主控 + 打开升级窗口 */
+    UPGRADE_USART_Config();
+    FW_UPG_Init();
+    FW_UPG_YM_Init();
+#endif
+
     /* 创建网络初始化任务 */
     osal_task_create(&task_net_init, "Net_Init_Task", Net_Init_Task, NULL,
                      TASK_STACK_SIZE_LARGE, TASK_PRIO_HIGH);
@@ -509,6 +524,10 @@ int main(void)
 #if APP_ENABLE_OTA
     osal_task_create(&task_ota, "OTA_Task", OTA_Task, NULL,
                      TASK_STACK_SIZE_LARGE, TASK_PRIO_LOW);
+#endif
+#if APP_ENABLE_YMODEM
+    osal_task_create(&task_ymodem, "Ymodem_Task", FW_UPG_YM_Task, NULL,
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_HIGHEST);
 #endif
 
     DEBUG_INFO("All tasks created, starting scheduler...");

@@ -24,6 +24,7 @@
 #define APP_ENABLE_LCD              0   /* 使能LCD显示任务 */
 #define APP_ENABLE_NTP              0   /* 使能NTP时间同步任务 */
 #define APP_ENABLE_OTA              0   /* 使能OTA升级任务 */
+#define APP_ENABLE_YMODEM           1   /* 使能Ymodem本地升级（UART3通道，与OTA分离） */
 
 /* LED闪烁任务配置 */
 #define APP_LED_TOGGLE_PERIOD_MS    500     /* LED翻转周期(ms) */

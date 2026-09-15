@@ -340,7 +340,7 @@
               <MiscControls>--locale=english --diag_suppress=2803</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Libraries\CMSIS\Include;..\Libraries\CMSIS\Device\ST\STM32F4xx\Include;..\Libraries\STM32F4xx_HAL_Driver\Inc;..\FreeRTOS\port\RVDS\ARM_CM4F;..\FreeRTOS\include;..\Platform\drv_led;..\Platform\drv_eth;..\Platform\drv_uart;..\Tools\cm_backtrace;..\LwIP\include;..\LwIP\include\compat;..\LwIP\include\lwip;..\LwIP\include\netif;..\LwIP\include\lwip\apps;..\LwIP\include\lwip\priv;..\LwIP\include\lwip\prot;..\Platform\port;..\MQTT;..\cJSON;..\Platform\drv_dht11;..\Tools\dwt_delay;..\Config;..\OSAL;..\Tools;..\App;..\Platform;..\Components;..\Components\mqtt</IncludePath>
+              <IncludePath>..\Libraries\CMSIS\Include;..\Libraries\CMSIS\Device\ST\STM32F4xx\Include;..\Libraries\STM32F4xx_HAL_Driver\Inc;..\FreeRTOS\port\RVDS\ARM_CM4F;..\FreeRTOS\include;..\Platform\drv_led;..\Platform\drv_eth;..\Platform\drv_uart;..\Platform\drv_flash;..\FwUpgrade;..\FwUpgrade\ymodem;..\Tools\cm_backtrace;..\LwIP\include;..\LwIP\include\compat;..\LwIP\include\lwip;..\LwIP\include\netif;..\LwIP\include\lwip\apps;..\LwIP\include\lwip\priv;..\LwIP\include\lwip\prot;..\Platform\port;..\MQTT;..\cJSON;..\Platform\drv_dht11;..\Tools\dwt_delay;..\Config;..\OSAL;..\Tools;..\App;..\Platform;..\Components;..\Components\mqtt</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -760,6 +760,31 @@
               <FilePath>..\Platform\drv_uart\bsp_debug_usart.c</FilePath>
             </File>
             <File>
+              <FileName>bsp_upgrade_usart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\drv_uart\bsp_upgrade_usart.c</FilePath>
+            </File>
+            <File>
+              <FileName>drv_flash.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\drv_flash\drv_flash.c</FilePath>
+            </File>
+            <File>
+              <FileName>fw_upgrade.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FwUpgrade\fw_upgrade.c</FilePath>
+            </File>
+            <File>
+              <FileName>ymodem_recv.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FwUpgrade\ymodem\ymodem_recv.c</FilePath>
+            </File>
+            <File>
+              <FileName>ymodem_send.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\FwUpgrade\ymodem\ymodem_send.c</FilePath>
+            </File>
+            <File>
               <FileName>bsp_eth.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Platform\drv_eth\bsp_eth.c</FilePath>
@@ -833,6 +858,11 @@
               <FileName>drv_adc.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Platform\drv_adc\drv_adc.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_ap3216c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\drv_ap3216c\bsp_ap3216c.c</FilePath>
             </File>
             <File>
               <FileName>drv_camera.c</FileName>

@@ -34,10 +34,7 @@ void BSP_Init(void)
   DEBUG_USART_Config();
   
   /* CmBacktrace initialize */
-  cm_backtrace_init("JIEJIE-F407", HARDWARE_VERSION, SOFTWARE_VERSION);
-  
-  printf("----------- Lwip demo ------------\n");
-	
+  cm_backtrace_init("JIEJIE-F407", HARDWARE_VERSION, SOFTWARE_VERSION);	
 }
 
 /**

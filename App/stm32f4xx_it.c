@@ -39,6 +39,7 @@
 #include "main.h"
 #include "stm32f4xx_it.h"
 #include "../Platform/drv_uart/bsp_debug_usart.h"
+#include "../Platform/drv_uart/bsp_upgrade_usart.h"
 
 #include "FreeRTOS.h"					//FreeRTOSʹ��		  
 #include "task.h" 
@@ -192,6 +193,16 @@ void SysTick_Handler(void)
 void EXTI0_IRQHandler(void)
 {
   
+}
+
+/**
+  * @brief  This function handles USART3 global interrupt (Ymodem upgrade channel).
+  * @param  None
+  * @retval None
+  */
+void USART3_IRQHandler(void)
+{
+  UPGRADE_USART_IrqProcess();
 }
 
 extern uint8_t Rxflag;

@@ -517,4 +517,11 @@ The STM32F4x7 allows computing and verifying the IP, UDP, TCP and ICMP checksums
 
 ////#define LWIP_SNMP 1
 
+/*
+ * LWIP_SO_LINGER==1: 使能SO_LINGER套接字选项。
+ * transport_close用SO_LINGER{1,0}对断链socket发RST立即释放, 避免close
+ * 等待FIN重传超时(分钟级)导致mqtt线程卡死无法重连。
+ */
+#define LWIP_SO_LINGER                 1
+
 //#endif /* __LWIPOPTS_H__ */
