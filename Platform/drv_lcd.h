@@ -12,6 +12,17 @@
 
 #include <stdint.h>
 
+/* RGB565 常用颜色定义（与NT35510驱动一致） */
+#define WHITE                         0xFFFF  /* 白色 */
+#define BLACK                         0x0000  /* 黑色 */
+#define GREY                          0xF7DE  /* 灰色 */
+#define BLUE                          0x001F  /* 蓝色 */
+#define RED                           0xF800  /* 红色 */
+#define MAGENTA                       0xF81F  /* 品红色 */
+#define GREEN                         0x07E0  /* 绿色 */
+#define CYAN                          0x7FFF  /* 青色 */
+#define YELLOW                        0xFFE0  /* 黄色 */
+
 /* LCD像素格式 */
 typedef enum {
     LCD_PIXEL_FORMAT_RGB565 = 0,

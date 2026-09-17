@@ -348,10 +348,99 @@ static void Camera_Task(void *pvParameters)
 *******************************************************************************/
 static void LCD_Task(void *pvParameters)
 {
+    SensorData_t lcd_data;
+    uint32_t last_timestamp = 0;
+    char line[32];
+    LCD_Region_t data_region = {0, 40, 480, 160};
+    uint8_t lcd_mode = 0;           /* 0:正常 1:升级中 2:升级成功 */
+    uint32_t last_percent = 1000;   /* 非法初值，强制首次重绘 */
+
     (void)pvParameters;
 
+    /* 标题栏 + 等待提示 */
+    drv_lcd_clear(BLACK);
+    drv_lcd_draw_string(10, 10, "STM32 IoT Terminal", YELLOW);
+    drv_lcd_draw_string(10, 50, "Waiting for sensor data...", WHITE);
+
     while (1) {
-        /* LCD显示处理 */
+        uint8_t fw_state = FW_UPG_GetState();
+
+        if (fw_state == FW_UPG_STATE_RECVING || fw_state == FW_UPG_STATE_DONE) {
+            uint8_t new_mode = (fw_state == FW_UPG_STATE_DONE) ? 2 : 1;
+            uint32_t fw_size = FW_UPG_GetFwSize();
+            uint32_t recv = FW_UPG_GetRecvSize();
+            uint32_t percent = (fw_size > 0) ? (recv * 100 / fw_size) : 0;
+            LCD_Region_t bar_bg = {20, 60, 440, 24};
+            LCD_Region_t bar_fg;
+            LCD_Region_t txt_line = {20, 100, 320, 32};
+
+            if (percent > 100) {
+                percent = 100;
+            }
+
+            /* 模式切换（进入升级/成功画面）时整屏重绘 */
+            if (lcd_mode != new_mode) {
+                lcd_mode = new_mode;
+                last_percent = 1000;    /* 强制进度条重绘 */
+                drv_lcd_clear(BLACK);
+                drv_lcd_draw_string(10, 10, "Firmware Upgrading...", YELLOW);
+            }
+
+            /* 进度变化才重绘进度条与文字 */
+            if (percent != last_percent) {
+                last_percent = percent;
+                drv_lcd_fill_rect(&bar_bg, GREY);
+                bar_fg.x = 22;
+                bar_fg.y = 62;
+                bar_fg.width = (uint16_t)(percent * 436 / 100);
+                bar_fg.height = 20;
+                drv_lcd_fill_rect(&bar_fg, GREEN);
+
+                drv_lcd_fill_rect(&txt_line, BLACK);
+                if (fw_state == FW_UPG_STATE_DONE) {
+                    drv_lcd_draw_string(20, 100, "Upgrade Success!", GREEN);
+                    drv_lcd_draw_string(20, 140, "Rebooting...", CYAN);
+                } else if (recv >= fw_size && fw_size > 0) {
+                    snprintf(line, sizeof(line), "%u%%  Verifying...", (unsigned)percent);
+                    drv_lcd_draw_string(20, 100, line, WHITE);
+                    drv_lcd_draw_string(20, 140, "Do not power off!", RED);
+                } else {
+                    snprintf(line, sizeof(line), "%u%%", (unsigned)percent);
+                    drv_lcd_draw_string(20, 100, line, WHITE);
+                    drv_lcd_draw_string(20, 140, "Do not power off!", RED);
+                }
+            }
+        } else if (lcd_mode != 0) {
+            /* 升级取消/失败回到正常显示 */
+            lcd_mode = 0;
+            last_timestamp = 0;     /* 强制重绘传感器数据区 */
+            drv_lcd_clear(BLACK);
+            drv_lcd_draw_string(10, 10, "STM32 IoT Terminal", YELLOW);
+            drv_lcd_draw_string(10, 50, "Waiting for sensor data...", WHITE);
+        } else {
+            /* 每秒轮询传感器缓存，数据有更新（时间戳变化）才重绘 */
+            if (sensor_manager_get_latest_data(&lcd_data) == 0 &&
+                lcd_data.timestamp != last_timestamp) {
+                last_timestamp = lcd_data.timestamp;
+
+                /* 只清数据区重绘，避免整屏刷新闪烁 */
+                drv_lcd_fill_rect(&data_region, BLACK);
+
+                if (lcd_data.is_valid) {
+                    snprintf(line, sizeof(line), "Temp : %5.1f C", lcd_data.temperature);
+                    drv_lcd_draw_string(10, 50, line, WHITE);
+                    snprintf(line, sizeof(line), "Hum  : %5.1f %%", lcd_data.humidity);
+                    drv_lcd_draw_string(10, 82, line, WHITE);
+                    snprintf(line, sizeof(line), "Light: %5.1f lux", lcd_data.light_value);
+                    drv_lcd_draw_string(10, 114, line, WHITE);
+                    snprintf(line, sizeof(line), "Smoke: %5.1f mV", lcd_data.smoke_value);
+                    drv_lcd_draw_string(10, 146, line, WHITE);
+                } else {
+                    drv_lcd_draw_string(10, 50, "Sensor data invalid", RED);
+                }
+            }
+        }
+
         osal_task_delay(100);
     }
 }
@@ -515,7 +604,7 @@ int main(void)
 #endif
 #if APP_ENABLE_LCD
     osal_task_create(&task_lcd, "LCD_Task", LCD_Task, NULL,
-                     TASK_STACK_SIZE_MEDIUM, TASK_PRIO_LOW);
+                     TASK_STACK_SIZE_LARGE, TASK_PRIO_LOW);
 #endif
 #if APP_ENABLE_NTP
     osal_task_create(&task_ntp, "NTP_Task", NTP_Task, NULL,

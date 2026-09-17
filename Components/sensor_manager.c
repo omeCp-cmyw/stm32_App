@@ -9,6 +9,7 @@
 
 #include "sensor_manager.h"
 #include "../Tools/debug.h"
+#include "../OSAL/osal.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include <string.h>
@@ -21,6 +22,11 @@ static SensorManager_Config_t sensor_config = {
 
 /* 采集运行标志 */
 static uint8_t collect_running = 0;
+
+/* 最新数据缓存（供LCD等展示任务只读，不触发采集） */
+static SensorData_t g_latest_data;
+static uint8_t g_latest_valid = 0;
+static osal_mutex_t g_latest_mutex = NULL;
 
 /*******************************************************************************
 ** 函数名称    sensor_manager_init
@@ -35,6 +41,13 @@ int sensor_manager_init(void)
 
     if (drv_sensor_init() != 0) {
         DEBUG_ERROR("[SENSOR_MANAGER] Driver init failed");
+        return -1;
+    }
+
+    /* 创建缓存互斥锁（保护最新数据读写一致性） */
+    g_latest_mutex = osal_mutex_create();
+    if (g_latest_mutex == NULL) {
+        DEBUG_ERROR("[SENSOR_MANAGER] Mutex create failed");
         return -1;
     }
 
@@ -130,6 +143,37 @@ int sensor_manager_get_data(SensorData_t *data)
 
     data->timestamp = xTaskGetTickCount();
     data->is_valid = all_data.is_valid;
+
+    /* 缓存最新数据供展示任务（LCD等）只读，避免并发采集干扰DHT11单总线时序 */
+    osal_mutex_lock(g_latest_mutex);
+    g_latest_data = *data;
+    g_latest_valid = 1;
+    osal_mutex_unlock(g_latest_mutex);
+
+    return 0;
+}
+
+/*******************************************************************************
+** 函数名称    sensor_manager_get_latest_data
+** 函数说明    获取最新采集数据（只读缓存，不触发底层采集）
+** 输入参数    data: 数据指针
+** 输出参数    无
+** 返回参数    0: 成功, -1: 参数错误, -2: 暂无有效数据
+*******************************************************************************/
+int sensor_manager_get_latest_data(SensorData_t *data)
+{
+    if (data == NULL) {
+        return -1;
+    }
+
+    osal_mutex_lock(g_latest_mutex);
+    if (!g_latest_valid) {
+        osal_mutex_unlock(g_latest_mutex);
+        return -2;
+    }
+    *data = g_latest_data;
+    osal_mutex_unlock(g_latest_mutex);
+
     return 0;
 }
 

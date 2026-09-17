@@ -25,6 +25,12 @@ int sensor_manager_deinit(void);
 int sensor_manager_start_collect(void);
 int sensor_manager_stop_collect(void);
 int sensor_manager_get_data(SensorData_t *data);
+/**
+  * @brief  获取最新采集数据（只读缓存，不触发采集）
+  * @param  data: 数据指针
+  * @retval 0: 成功, -1: 参数错误, -2: 暂无有效数据
+  */
+int sensor_manager_get_latest_data(SensorData_t *data);
 int sensor_manager_set_collect_period(uint32_t period);
 int sensor_manager_enable_sensor(SensorType_e type, uint8_t enable);
 

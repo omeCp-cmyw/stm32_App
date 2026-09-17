@@ -21,7 +21,7 @@
 #define APP_ENABLE_SENSOR           1   /* 使能传感器采集任务 */
 #define APP_ENABLE_CLOUD            1   /* 使能云平台通信任务 */
 #define APP_ENABLE_CAMERA           0   /* 使能摄像头任务 */
-#define APP_ENABLE_LCD              0   /* 使能LCD显示任务 */
+#define APP_ENABLE_LCD              1   /* 使能LCD显示任务 */
 #define APP_ENABLE_NTP              0   /* 使能NTP时间同步任务 */
 #define APP_ENABLE_OTA              0   /* 使能OTA升级任务 */
 #define APP_ENABLE_YMODEM           1   /* 使能Ymodem本地升级（UART3通道，与OTA分离） */

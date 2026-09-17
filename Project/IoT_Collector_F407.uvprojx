@@ -340,7 +340,7 @@
               <MiscControls>--locale=english --diag_suppress=2803</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>..\Libraries\CMSIS\Include;..\Libraries\CMSIS\Device\ST\STM32F4xx\Include;..\Libraries\STM32F4xx_HAL_Driver\Inc;..\FreeRTOS\port\RVDS\ARM_CM4F;..\FreeRTOS\include;..\Platform\drv_led;..\Platform\drv_eth;..\Platform\drv_uart;..\Platform\drv_flash;..\FwUpgrade;..\FwUpgrade\ymodem;..\Tools\cm_backtrace;..\LwIP\include;..\LwIP\include\compat;..\LwIP\include\lwip;..\LwIP\include\netif;..\LwIP\include\lwip\apps;..\LwIP\include\lwip\priv;..\LwIP\include\lwip\prot;..\Platform\port;..\MQTT;..\cJSON;..\Platform\drv_dht11;..\Tools\dwt_delay;..\Config;..\OSAL;..\Tools;..\App;..\Platform;..\Components;..\Components\mqtt</IncludePath>
+              <IncludePath>..\Libraries\CMSIS\Include;..\Libraries\CMSIS\Device\ST\STM32F4xx\Include;..\Libraries\STM32F4xx_HAL_Driver\Inc;..\FreeRTOS\port\RVDS\ARM_CM4F;..\FreeRTOS\include;..\Platform\drv_led;..\Platform\drv_eth;..\Platform\drv_uart;..\Platform\drv_flash;..\Platform\drv_lcd;..\FwUpgrade;..\FwUpgrade\ymodem;..\Tools\cm_backtrace;..\LwIP\include;..\LwIP\include\compat;..\LwIP\include\lwip;..\LwIP\include\netif;..\LwIP\include\lwip\apps;..\LwIP\include\lwip\priv;..\LwIP\include\lwip\prot;..\Platform\port;..\MQTT;..\cJSON;..\Platform\drv_dht11;..\Tools\dwt_delay;..\Config;..\OSAL;..\Tools;..\App;..\Platform;..\Components;..\Components\mqtt</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -873,6 +873,16 @@
               <FileName>drv_lcd.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Platform\drv_lcd.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_nt35510_lcd.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\drv_lcd\bsp_nt35510_lcd.c</FilePath>
+            </File>
+            <File>
+              <FileName>fonts.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\drv_lcd\fonts.c</FilePath>
             </File>
             <File>
               <FileName>drv_key.c</FileName>

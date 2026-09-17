@@ -308,7 +308,8 @@ uint8_t FW_UPG_Finish(void)
 
     FW_UPG_SetBkupFlag(FW_UPG_FLAG_MAGIC);                             /* 备份寄存器同步置标志 */
     HAL_Delay(100);                                                    /* 等串口发送缓冲排空 */
-    s_fwupg.state = FW_UPG_STATE_IDLE;
+    s_fwupg.state = FW_UPG_STATE_DONE;                                 /* 置完成态，供LCD任务展示成功画面 */
+    HAL_Delay(2000);                                                   /* 复位前留2秒显示窗口（HAL_Delay忙等不阻塞调度） */
     NVIC_SystemReset();
 
     return FW_UPG_RESULT_SUCCESS;

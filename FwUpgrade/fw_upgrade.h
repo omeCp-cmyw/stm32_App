@@ -16,6 +16,7 @@
 typedef enum {
     FW_UPG_STATE_IDLE = 0,      /* 空闲，等待升级数据 */
     FW_UPG_STATE_RECVING,       /* 正在接收固件数据 */
+    FW_UPG_STATE_DONE,          /* 接收完成校验通过，复位前展示成功画面 */
     FW_UPG_STATE_MAX
 } FW_UPG_STATE_E;
 

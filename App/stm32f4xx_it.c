@@ -92,7 +92,8 @@ void NMI_Handler(void)
   */
 void MemManage_Handler(void)
 {
-  /* Go to infinite loop when Memory Manage exception occurs */
+  printf("[FAULT] MemManage fault! CFSR=0x%08X, MMFAR=0x%08X\r\n",
+         (unsigned)SCB->CFSR, (unsigned)SCB->MMFAR);
   while (1)
   {
   }
@@ -105,7 +106,8 @@ void MemManage_Handler(void)
   */
 void BusFault_Handler(void)
 {
-  /* Go to infinite loop when Bus Fault exception occurs */
+  printf("[FAULT] BusFault! CFSR=0x%08X, BFAR=0x%08X\r\n",
+         (unsigned)SCB->CFSR, (unsigned)SCB->BFAR);
   while (1)
   {
   }
@@ -118,7 +120,7 @@ void BusFault_Handler(void)
   */
 void UsageFault_Handler(void)
 {
-  /* Go to infinite loop when Usage Fault exception occurs */
+  printf("[FAULT] UsageFault! CFSR=0x%08X\r\n", (unsigned)SCB->CFSR);
   while (1)
   {
   }
