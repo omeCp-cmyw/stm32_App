@@ -20,12 +20,16 @@
 #include "../Platform/drv_camera.h"
 #include "../Platform/drv_lcd.h"
 #include "../Platform/drv_key.h"
+#include "../Platform/drv_rtc.h"
 
 /* 组件层头文件 */
 #include "../Components/sensor_manager.h"
 #include "../Components/cloud_manager.h"
 #include "../Components/net_manager.h"
 #include "../Components/ota_manager.h"
+#if APP_ENABLE_NTP
+#include "../Components/ntp/ntp_mmi.h"
+#endif
 
 /* Ymodem本地升级（UART3通道，与OTA分离） */
 #include "../Platform/drv_uart/bsp_upgrade_usart.h"
@@ -40,6 +44,10 @@
 #include "../Tools/dwt_delay/core_delay.h"
 #include "lwip/netif.h"
 #include "lwip/ip_addr.h"
+#if APP_ENABLE_NTP
+#include "lwip/sockets.h"
+#include "lwip/dns.h"
+#endif
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -64,6 +72,9 @@ static osal_task_t task_lcd;
 #endif
 #if APP_ENABLE_NTP
 static osal_task_t task_ntp;
+/* NTP任务收发缓冲（static避免占用任务栈，NTP任务单实例无重入问题） */
+static uint8_t s_ntp_req[NTP_MMI_PACKET_SIZE];
+static uint8_t s_ntp_rsp[64];
 #endif
 #if APP_ENABLE_OTA
 static osal_task_t task_ota;
@@ -81,6 +92,9 @@ static osal_task_t task_monitor;
 
 /* 全局变量 */
 QueueHandle_t MQTT_Data_Queue = NULL;
+#if APP_ENABLE_CLOUD && APP_ENABLE_NTP
+static osal_sem_t s_ntp_sync_sem;   /* NTP同步完成信号量，Cloud任务等待其唤醒 */
+#endif
 
 /* 外部函数声明 */
 extern void TCPIP_Init(void);
@@ -295,6 +309,16 @@ static void Cloud_Task(void *pvParameters)
         }
     }
 
+#if APP_ENABLE_NTP
+    /* 先等NTP时间同步完成再连接MQTT（超时兜底，避免NTP故障永久阻塞上报） */
+    if (s_ntp_sync_sem != NULL) {
+        DEBUG_INFO("Waiting for NTP time sync...");
+        if (osal_sem_wait(s_ntp_sync_sem, APP_CLOUD_NTP_WAIT_MS) != OSAL_OK) {
+            DEBUG_WARN("Wait NTP timeout, connect MQTT anyway");
+        }
+    }
+#endif
+
     /* 启动MQTT收发线程（连接/重连由线程内部自理） */
     if (cloud_manager_connect() == 0) {
         DEBUG_INFO("Cloud manager started");
@@ -351,7 +375,9 @@ static void LCD_Task(void *pvParameters)
     SensorData_t lcd_data;
     uint32_t last_timestamp = 0;
     char line[32];
-    LCD_Region_t data_region = {0, 40, 480, 160};
+    char last_time_str[32] = "";
+    LCD_Region_t time_region = {0, 50, 480, 32};    /* 时间行区域 */
+    LCD_Region_t data_region = {0, 72, 480, 200};   /* 传感器数据区(下移32px给时间行) */
     uint8_t lcd_mode = 0;           /* 0:正常 1:升级中 2:升级成功 */
     uint32_t last_percent = 1000;   /* 非法初值，强制首次重绘 */
 
@@ -360,7 +386,7 @@ static void LCD_Task(void *pvParameters)
     /* 标题栏 + 等待提示 */
     drv_lcd_clear(BLACK);
     drv_lcd_draw_string(10, 10, "STM32 IoT Terminal", YELLOW);
-    drv_lcd_draw_string(10, 50, "Waiting for sensor data...", WHITE);
+    drv_lcd_draw_string(10, 82, "Waiting for sensor data...", WHITE);
 
     while (1) {
         uint8_t fw_state = FW_UPG_GetState();
@@ -414,10 +440,24 @@ static void LCD_Task(void *pvParameters)
             /* 升级取消/失败回到正常显示 */
             lcd_mode = 0;
             last_timestamp = 0;     /* 强制重绘传感器数据区 */
+            last_time_str[0] = '\0'; /* 强制重绘时间行 */
             drv_lcd_clear(BLACK);
             drv_lcd_draw_string(10, 10, "STM32 IoT Terminal", YELLOW);
-            drv_lcd_draw_string(10, 50, "Waiting for sensor data...", WHITE);
+            drv_lcd_draw_string(10, 82, "Waiting for sensor data...", WHITE);
         } else {
+            /* 时间行：读RTC，变化才重绘（RTC无效时显示占位符） */
+            char time_str[24];
+            if (drv_rtc_get_str(time_str, sizeof(time_str)) == 0) {
+                snprintf(line, sizeof(line), "Time: %s", time_str);
+            } else {
+                strcpy(line, "Time: ----");
+            }
+            if (strcmp(line, last_time_str) != 0) {
+                strcpy(last_time_str, line);
+                drv_lcd_fill_rect(&time_region, BLACK);
+                drv_lcd_draw_string(10, 50, line, CYAN);
+            }
+
             /* 每秒轮询传感器缓存，数据有更新（时间戳变化）才重绘 */
             if (sensor_manager_get_latest_data(&lcd_data) == 0 &&
                 lcd_data.timestamp != last_timestamp) {
@@ -428,15 +468,15 @@ static void LCD_Task(void *pvParameters)
 
                 if (lcd_data.is_valid) {
                     snprintf(line, sizeof(line), "Temp : %5.1f C", lcd_data.temperature);
-                    drv_lcd_draw_string(10, 50, line, WHITE);
-                    snprintf(line, sizeof(line), "Hum  : %5.1f %%", lcd_data.humidity);
                     drv_lcd_draw_string(10, 82, line, WHITE);
-                    snprintf(line, sizeof(line), "Light: %5.1f lux", lcd_data.light_value);
+                    snprintf(line, sizeof(line), "Hum  : %5.1f %%", lcd_data.humidity);
                     drv_lcd_draw_string(10, 114, line, WHITE);
-                    snprintf(line, sizeof(line), "Smoke: %5.1f mV", lcd_data.smoke_value);
+                    snprintf(line, sizeof(line), "Light: %5.1f lux", lcd_data.light_value);
                     drv_lcd_draw_string(10, 146, line, WHITE);
+                    snprintf(line, sizeof(line), "Smoke: %5.1f mV", lcd_data.smoke_value);
+                    drv_lcd_draw_string(10, 178, line, WHITE);
                 } else {
-                    drv_lcd_draw_string(10, 50, "Sensor data invalid", RED);
+                    drv_lcd_draw_string(10, 82, "Sensor data invalid", RED);
                 }
             }
         }
@@ -458,9 +498,92 @@ static void NTP_Task(void *pvParameters)
 {
     (void)pvParameters;
 
+    /* 等待网络就绪：网卡已注册、链路up、IP已分配 */
+    while (netif_default == NULL || !netif_is_up(netif_default) ||
+           ip4_addr_isany_val(*netif_ip4_addr(netif_default))) {
+        osal_task_delay(1000);
+    }
+    DEBUG_INFO("NTP: network ready, start time sync");
+
     while (1) {
-        /* NTP时间同步处理 */
-        osal_task_delay(60000);  /* 每分钟同步一次 */
+        struct sockaddr_in srv;
+        ip_addr_t srv_ip;
+        uint32_t unix_ts;
+        int fd;
+        int ret;
+
+        /* 解析NTP服务器域名 */
+        if (dns_gethostbyname(APP_NTP_SERVER, &srv_ip, NULL, NULL) != ERR_OK) {
+            DEBUG_INFO("NTP: dns resolve %s fail, retry in %d s",
+                       APP_NTP_SERVER, APP_NTP_RETRY_MS / 1000);
+            osal_task_delay(APP_NTP_RETRY_MS);
+            continue;
+        }
+
+        /* 创建UDP套接字 */
+        fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (fd < 0) {
+            DEBUG_INFO("NTP: socket create fail, retry in %d s",
+                       APP_NTP_RETRY_MS / 1000);
+            osal_task_delay(APP_NTP_RETRY_MS);
+            continue;
+        }
+
+        /* 发送NTP请求 */
+        memset(&srv, 0, sizeof(srv));
+        srv.sin_family = AF_INET;
+        srv.sin_port = htons(APP_NTP_PORT);
+        srv.sin_addr.s_addr = srv_ip.addr;
+
+        NTP_MMI_BuildRequest(s_ntp_req);
+        ret = sendto(fd, s_ntp_req, NTP_MMI_PACKET_SIZE, 0,
+                     (struct sockaddr *)&srv, sizeof(srv));
+        if (ret < 0) {
+            DEBUG_INFO("NTP: sendto fail");
+            close(fd);
+            osal_task_delay(APP_NTP_RETRY_MS);
+            continue;
+        }
+
+        /* 非阻塞轮询接收应答，超时重试 */
+        ret = -1;
+        {
+            uint32_t elapsed = 0;
+
+            while (elapsed < APP_NTP_RECV_TIMEOUT_MS) {
+                int rlen = recv(fd, s_ntp_rsp, sizeof(s_ntp_rsp), MSG_DONTWAIT);
+                if (rlen > 0) {
+                    if (NTP_MMI_ParseReply(s_ntp_rsp, rlen, &unix_ts) == 0) {
+                        NTP_MMI_SetTime(unix_ts);
+                        /* 北京时间(UTC+8)写入RTC，掉电后由备份域保持 */
+                        drv_rtc_set_unix(unix_ts + 8 * 3600);
+                        ret = 0;
+                    } else {
+                        DEBUG_INFO("NTP: invalid reply");
+                    }
+                    break;
+                }
+                osal_task_delay(100);
+                elapsed += 100;
+            }
+        }
+        close(fd);
+
+        if (ret == 0) {
+            /* 同步成功，唤醒等待的Cloud任务并进入周期校时 */
+#if APP_ENABLE_CLOUD
+            if (s_ntp_sync_sem != NULL) {
+                osal_sem_post(s_ntp_sync_sem);
+            }
+#endif
+            DEBUG_INFO("NTP: sync success, next in %d s",
+                       APP_NTP_SYNC_PERIOD_MS / 1000);
+            osal_task_delay(APP_NTP_SYNC_PERIOD_MS);
+        } else {
+            DEBUG_INFO("NTP: reply timeout, retry in %d s",
+                       APP_NTP_RETRY_MS / 1000);
+            osal_task_delay(APP_NTP_RETRY_MS);
+        }
     }
 }
 #endif
@@ -554,6 +677,7 @@ int main(void)
     drv_camera_init();
     drv_lcd_init();
     drv_key_init();
+    drv_rtc_init();
     
     /* 初始化组件管理器 */
     sensor_manager_init();
@@ -566,6 +690,11 @@ int main(void)
     UPGRADE_USART_Config();
     FW_UPG_Init();
     FW_UPG_YM_Init();
+#endif
+
+#if APP_ENABLE_CLOUD && APP_ENABLE_NTP
+    /* 创建NTP同步完成信号量（二进制，初值为空），Cloud任务连接前等待 */
+    s_ntp_sync_sem = osal_sem_create();
 #endif
 
     /* 创建网络初始化任务 */

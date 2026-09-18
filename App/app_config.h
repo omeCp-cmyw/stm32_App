@@ -22,7 +22,7 @@
 #define APP_ENABLE_CLOUD            1   /* 使能云平台通信任务 */
 #define APP_ENABLE_CAMERA           0   /* 使能摄像头任务 */
 #define APP_ENABLE_LCD              1   /* 使能LCD显示任务 */
-#define APP_ENABLE_NTP              0   /* 使能NTP时间同步任务 */
+#define APP_ENABLE_NTP              1   /* 使能NTP时间同步任务 */
 #define APP_ENABLE_OTA              0   /* 使能OTA升级任务 */
 #define APP_ENABLE_YMODEM           1   /* 使能Ymodem本地升级（UART3通道，与OTA分离） */
 
@@ -44,5 +44,13 @@
 
 /* 云平台通信任务配置 */
 #define APP_CLOUD_STATUS_PERIOD_MS  1000        /* 云状态监控周期(ms) */
+#define APP_CLOUD_NTP_WAIT_MS       60000       /* Cloud任务等待NTP同步超时(ms)，超时后仍连接 */
+
+/* NTP校时任务配置 */
+#define APP_NTP_SERVER              "ntp.aliyun.com"    /* NTP服务器域名 */
+#define APP_NTP_PORT                123                 /* NTP服务端口 */
+#define APP_NTP_RECV_TIMEOUT_MS     3000                /* 单次应答等待超时(ms) */
+#define APP_NTP_RETRY_MS            10000               /* 失败重试间隔(ms) */
+#define APP_NTP_SYNC_PERIOD_MS      3600000             /* 同步成功后周期校时间隔(ms) */
 
 #endif /* __APP_CONFIG_H */

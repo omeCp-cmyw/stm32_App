@@ -1,19 +1,10 @@
-/**
-  ******************************************************************************
-  * @file    bsp_nt35510_lcd.c
-  * @author  fire
-  * @version V1.0
-  * @date    2018-xx-xx
-  * @brief   NT35510 LCD驱动
-  ******************************************************************************
-  * @attention
-  *
-  * 实验平台:野火 STM32 F407 开发板
-  * 论坛    :http://www.firebbs.cn
-  * 淘宝    :https://fire-stm32.taobao.com
-  *
-  ******************************************************************************
-  */ 
+/********************************************************************************
+**
+** 文件名:     bsp_nt35510_lcd.c
+** 版权所有:   无
+** 文件描述:   NT35510 LCD驱动
+**
+*********************************************************************************/
 
 #include "bsp_nt35510_lcd.h"
 #include "fonts.h"
@@ -174,7 +165,7 @@ static void NT35510_FSMC_Config ( void )
 	hsram.Instance  = FSMC_NORSRAM_DEVICE;
 	hsram.Extended  = FSMC_NORSRAM_EXTENDED_DEVICE;
 
-	/* 与野火STD配置一致：地址建立4个HCLK，数据建立11个HCLK，模式B */
+	/* 地址建立4个HCLK，数据建立11个HCLK，模式B */
 	readWriteTiming.AddressSetupTime       = 0x04;	 //地址建立时间 5/168M=30ns
 	readWriteTiming.AddressHoldTime        = 0x00;	 //地址保持时间
 	readWriteTiming.DataSetupTime          = 0x0b;	 //数据建立时间 12/168M=72ns
@@ -219,7 +210,7 @@ static void NT35510_REG_Config ( void )
 	printf("[LCD] BCR3=0x%08X BTR3=0x%08X\r\n",
 	       (unsigned)FSMC_Bank1->BTCR[6], (unsigned)FSMC_Bank1->BTCR[7]);
 	
-	// 2. 发送初始化序列（野火官方 NT35510-HSD43 4.3寸序列）
+	// 2. 发送初始化序列（NT35510-HSD43 4.3寸序列）
 	///NT35510-HSD43
 	//PAGE1
 	NT35510_Write_Cmd(0xF000);    NT35510_Write_Data(0x0055);

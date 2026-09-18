@@ -890,6 +890,11 @@
               <FilePath>..\Platform\drv_key.c</FilePath>
             </File>
             <File>
+              <FileName>drv_rtc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Platform\drv_rtc.c</FilePath>
+            </File>
+            <File>
               <FileName>sensor_manager.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Components\sensor_manager.c</FilePath>
@@ -908,6 +913,11 @@
               <FileName>ota_manager.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Components\ota_manager.c</FilePath>
+            </File>
+            <File>
+              <FileName>ntp_mmi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Components\ntp\ntp_mmi.c</FilePath>
             </File>
           </Files>
         </Group>
