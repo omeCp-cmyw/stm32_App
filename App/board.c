@@ -14,9 +14,7 @@
 #include "../Platform/drv_led/bsp_led.h"  
 
 #include "../Tools/cm_backtrace/cm_backtrace.h"
-
-#define HARDWARE_VERSION               "V1.0.0"
-#define SOFTWARE_VERSION               "V0.1.0"
+#include "../Config/version.h"
 
 static void SystemClock_Config(void);
 static void GPIO_CLK_Init(void);

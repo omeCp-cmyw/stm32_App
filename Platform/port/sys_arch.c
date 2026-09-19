@@ -47,6 +47,7 @@
 #include <lwip/debug.h>
 #include <lwip/sys.h>
 #include "lwip/dhcp.h"
+#include "lwip/etharp.h"
 #include <string.h>
 
 int errno;
@@ -440,6 +441,18 @@ uint8_t IP_ADDRESS[4];
 uint8_t NETMASK_ADDRESS[4];
 uint8_t GATEWAY_ADDRESS[4];
 
+/* lwIP就绪标志：DHCP+IP+DNS预热完成置1，NTP_Task等待 */
+volatile uint8_t g_lwip_ready = 0;
+
+/* 预热网关ARP，避免首个DNS查询丢包 */
+static void arp_warmup(void *arg)
+{
+    (void)arg;
+    if (!ip_addr_isany(&gnetif.gw)) {
+        etharp_query(&gnetif, ip_2_ip4(&gnetif.gw), NULL);
+    }
+}
+
 void TCPIP_Init(void)
 {
   tcpip_init(NULL, NULL);
@@ -487,7 +500,9 @@ void TCPIP_Init(void)
   while(ip_addr_cmp(&(gnetif.ip_addr),&ipaddr))   //等待dhcp分配的ip有效
   {
     vTaskDelay(1);
-  } 
+  }
+  tcpip_callback(arp_warmup, NULL);             //tcpip线程内预热网关ARP
+  vTaskDelay(1000);                             //留1s等ARP交换完成
 #endif
   printf("Local IP address is: %d.%d.%d.%d\n\n",  \
         ((gnetif.ip_addr.addr)&0x000000ff),       \

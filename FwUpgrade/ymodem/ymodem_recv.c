@@ -8,11 +8,11 @@
 
 /*
 ********************************************************************************
-* 串口Ymodem升级通道接收侧（移植自备份工程ymodem_recv.c，FreeRTOS任务适配版）：
-* RCB接收控制块+逐字节组包，报文完整后校验CRC16与序号派发处理；
-* 周期扫描由Ymodem任务1ms驱动（备份工程为OSAL软件定时器）；
-* 应答经发送侧接口发出，解出的固件数据流经fw_upgrade主控写入备份分区。
-* 协议时序为标准严格双EOT版：
+* 串口Ymodem升级通道接收侧：
+* 逐字节组包，报文完整后校验CRC16与序号；
+* 周期扫描由Ymodem任务1ms驱动；应答经发送侧接口发出，
+* 固件数据流经fw_upgrade主控写入备份分区。
+* 协议时序为标准双EOT版：
 * 'C'握手 → 0号头包(文件名+大小)ACK+'C' → 数据包逐帧ACK/NAK →
 * EOT首回NAK/重发回ACK后主动发'C' → 空文件名结束包ACK+CAN CAN收尾。
 ********************************************************************************
@@ -24,15 +24,14 @@
 ********************************************************************************
 */
 #define YM_SCAN_PERIOD_MS     1            /* 接收扫描周期1ms */
-#define YM_MAX_ERRORS         5            /* 会话建立后连续坏包上限，超限双CAN取消 */
+#define YM_MAX_ERRORS         5            /* 连续坏包上限，超限双CAN取消 */
 
 /* 时序参数（单位ms） */
 #define YM_RX_TIMEOUT_MS        5000     /* 接收态超时放弃 */
-#define YM_END_PKT_TIMEOUT_MS   3000     /* 第二个EOT应答后等待结束包超时，超时直接收尾 */
+#define YM_END_PKT_TIMEOUT_MS   3000     /* 等结束包超时 */
 
-/* 升级窗口：复位初始化后立即进入升级等待态发'C'握手（对应ST参考上电即等待），
-   窗口内无有效传输则关闭并退回静默正常态，需再次复位才能重新进入 */
-#define YM_ARM_TIMEOUT_MS       10000    /* 升级窗口时长：'C'重发次数=本值/1000 */
+/* 升级窗口：上电即发'C'握手，窗口内无传输则关闭退回正常态 */
+#define YM_ARM_TIMEOUT_MS       10000    /* 升级窗口时长ms */
 
 /*
 ********************************************************************************
@@ -67,7 +66,7 @@ typedef struct {
     uint8_t   session_begin;   /* 会话已建立（头包已接受），此前坏包不计错误 */
     uint32_t  errors;          /* 会话建立后连续坏包计数，收包成功清零 */
     uint8_t   armed;           /* 升级等待态标志，0为正常态 */
-    uint8_t   last_can;        /* 上一字节是CAN标志（对齐ST参考：连续两个CAN才取消） */
+    uint8_t   last_can;        /* 上一字节是CAN标志（连续两个CAN才取消） */
     uint32_t  arm_tick;        /* 进入升级等待态的ms节拍 */
     uint32_t  last_rx_tick;    /* 最近收到字节的ms节拍 */
     uint32_t  eot2_tick;       /* 第二个EOT应答后的ms节拍，用于结束包超时判断 */
@@ -146,8 +145,8 @@ static void ymodem_on_stx(uint8_t byte)
 
 /*******************************************************************
 ** 函数名	: ymodem_on_eot
-** 函数描述	: EOT双次确认（标准Ymodem严格时序）：数据未收满的EOT忽略；
-**			: 首个EOT回NAK，发送方重发EOT后回ACK并主动发'C'请求结束帧。
+** 函数描述	: EOT双次确认：数据未收满的EOT忽略；
+**			: 首个EOT回NAK，重发EOT后回ACK并主动发'C'。
 ** 参数		: [in] byte: 报文头字节，未使用
 ** 返回		: 无
 ********************************************************************/
@@ -173,8 +172,7 @@ static void ymodem_on_eot(uint8_t byte)
 
 /*******************************************************************
 ** 函数名	: ymodem_on_can
-** 函数描述	: 收到发送方取消指令，中止升级（对齐ST参考Receive_Packet的case CA：
-**			: 调用前已确认连续两个CAN）。
+** 函数描述	: 收到发送方取消指令，中止升级。调用前已确认连续两个CAN。
 ** 参数		: 无
 ** 返回		: 无
 ********************************************************************/
@@ -187,8 +185,7 @@ static void ymodem_on_can(void)
 
 /*******************************************************************
 ** 函数名	: ymodem_abort_session
-** 函数描述	: 中止本次升级会话（对齐ST参考Receive_Packet的case ABORT：
-**			: 发送方敲'A'/'a'用户终止），双CAN告知后复位通道。
+** 函数描述	: 中止本次升级会话（发送方敲'A'/'a'用户终止），双CAN告知后复位通道。
 ** 参数		: 无
 ** 返回		: 无
 ********************************************************************/
@@ -219,8 +216,7 @@ static void ymodem_session_fail(void)
 /*******************************************************************
 ** 函数名	: ymodem_head_packet
 ** 函数描述	: 处理0号头报文：解析固件大小并启动升级。
-**			: 本函数内不做任何长耗时操作，扇区擦除推迟到WriteData懒执行，
-**			: 避免阻塞头包应答。
+**			: 本函数内不做耗时操作，擦除推迟到写数据时执行。
 ** 参数		: 无
 ** 返回		: 无
 ********************************************************************/
@@ -250,8 +246,7 @@ static void ymodem_head_packet(void)
 
     fwsize = (uint32_t)strtoul((char *)s_pkt_data + namelen + 1, 0, 10);
 
-    /* 头包解析结果：文件名+固件大小，应答前先打印，
-       即使后续StartUpdate失败也已留痕便于核对发送方文件 */
+    /* 头包信息先打印 */
     printf("[YMODEM] head packet: name=%s, size=%u bytes\r\n",
            (char *)s_pkt_data, (unsigned int)fwsize);
 
@@ -261,14 +256,14 @@ static void ymodem_head_packet(void)
         printf("[YMODEM] start update failed, size=%u\r\n", (unsigned int)fwsize);
         FW_UPG_YM_SendByte(YMODEM_CAN);                                /* 连续两个CAN取消 */
         FW_UPG_YM_SendByte(YMODEM_CAN);
-        FW_UPG_StopUpdate();                                           /* 状态标志恢复默认（多文件场景下可能残留RECVING） */
+        FW_UPG_StopUpdate();                                           /* 状态恢复默认 */
         FW_UPG_YM_Init();
         return;
     }
 
     s_rcb.expect_seq    = 1;
     s_rcb.session_begin = 1;
-    FW_UPG_YM_SendByte(YMODEM_CRC_REQ);                                /* 立即请求数据包，扇区擦除在写入时懒执行 */
+    FW_UPG_YM_SendByte(YMODEM_CRC_REQ);                                /* 立即请求数据包 */
 }
 
 /*******************************************************************
@@ -291,8 +286,7 @@ static void ymodem_data_packet(void)
     s_rcb.expect_seq++;
     FW_UPG_YM_SendByte(YMODEM_ACK);
 
-    /* 进度打印：每32个数据包一条（1K包约每32KB），频率极低不影响吞吐，
-       用于定位传输停滞位置（如扇区懒擦除卡顿、发送方停发） */
+    /* 每32包打印一次进度 */
     if (((uint16_t)(s_rcb.expect_seq - 1) & 0x1F) == 0) {
         printf("[YMODEM] progress %u/%u bytes\r\n",
                (unsigned int)FW_UPG_GetRecvSize(), (unsigned int)FW_UPG_GetFwSize());
@@ -301,7 +295,7 @@ static void ymodem_data_packet(void)
 
 /*******************************************************************
 ** 函数名	: ymodem_packet_done
-** 函数描述	: 报文收齐后校验CRC16与序号，按包序号派发处理。
+** 函数描述	: 报文收齐后校验CRC16与序号，按包序号处理。
 ** 参数		: 无
 ** 返回		: 无
 ********************************************************************/
@@ -360,6 +354,12 @@ static void ymodem_packet_done(void)
 ********************************************************************/
 static void ymodem_arm(void)
 {
+    /* OTA升级进行中不开窗 */
+    if (FW_UPG_GetState() != FW_UPG_STATE_IDLE) {
+        printf("[YMODEM] ota upgrade busy, arm rejected\r\n");
+        return;
+    }
+
     s_rcb.armed        = 1;
     s_rcb.arm_tick     = osal_get_time_ms();
     s_rcb.last_rx_tick = s_rcb.arm_tick;
@@ -396,12 +396,8 @@ static void ymodem_scan_poll(void)
     int32_t  ch;
 
     if (s_rcb.armed == 0) {
-        /* 正常态：升级窗口已关闭不再进入，仅排空残留串口数据防环缓冲积压；
-           必须直接return——此处每1ms执行一次，落入下方IDLE分支会因
-           arm_tick为旧值反复触发关窗打印造成刷屏。
-           排空量必须进函数时快照定死：中断持续往环缓冲填数据，若循环条件每圈
-           重新查GetRecvBytes，串口线有持续字节流时used永不为0，
-           会在本回调内空转出不去，阻塞Ymodem任务 */
+        /* 正常态：仅排空残留串口数据；排空量进函数时快照，
+           防止持续字节流下空转出不去 */
         drain = UPGRADE_USART_GetRecvBytes();
         while (drain > 0) {
             UPGRADE_USART_ReadChar();
@@ -410,8 +406,7 @@ static void ymodem_scan_poll(void)
         return;
     }
 
-    /* 升级等待态/接收态：读出数据交组包状态机，
-       同样快照定死本轮处理量，避免发送方持续灌包时回调内滞留过久 */
+    /* 升级等待态/接收态：读出数据交组包状态机 */
     drain = UPGRADE_USART_GetRecvBytes();
     while (drain > 0) {
         ch = UPGRADE_USART_ReadChar();
@@ -421,21 +416,19 @@ static void ymodem_scan_poll(void)
         drain--;
     }
 
-    /* 超时基准必须在泵数据之后取：recv_byte逐字节把last_rx_tick刷到当前ms，
-       若泵前取样则泵跨毫秒节拍时now < last_rx_tick，无符号减法回绕成巨值，
-       误触发下方超时判定，正在收数据也会被判中止 */
+    /* 超时基准在泵数据之后取，防止无符号减法回绕误判超时 */
     now = osal_get_time_ms();
 
-    /* 升级窗口内无有效传输，关闭窗口退回静默正常态 */
+    /* 升级窗口内无传输，关闭窗口 */
     if (FW_UPG_GetState() == FW_UPG_STATE_IDLE) {
         if (now - s_rcb.arm_tick >= YM_ARM_TIMEOUT_MS) {
             printf("[YMODEM] upgrade window closed, reset to re-enter\r\n");
             s_rcb.armed = 0;
         }
-        return;                                                        /* 等待期由窗口超时兜底，不受下方接收超时约束 */
+        return;                                                        /* 等待期由窗口超时管 */
     }
 
-    /* 第二个EOT已应答后发送方未发结束包，超时后直接收尾（兼容不发结束包的发送方） */
+    /* 第二个EOT后没收到结束包，超时直接收尾 */
     if (s_rcb.file_done != 0 && s_rcb.eot2_tick != 0
         && now - s_rcb.eot2_tick >= YM_END_PKT_TIMEOUT_MS
         && s_rcb.state == YM_STATE_HEAD && now - s_rcb.last_rx_tick >= YM_END_PKT_TIMEOUT_MS) {
@@ -445,8 +438,7 @@ static void ymodem_scan_poll(void)
         return;
     }
 
-    /* 接收态数据流中断超时（仅升级进行中生效：等待发送方发起传输的
-       握手期由10秒窗口超时兜底，否则用户晚点几秒发送就会被误判中止） */
+    /* 接收态数据流中断超时 */
     if (now - s_rcb.last_rx_tick >= YM_RX_TIMEOUT_MS) {
         printf("[YMODEM] receive timeout, abort\r\n");
         FW_UPG_YM_SendByte(YMODEM_CAN);                                /* 连续两个CAN取消 */
@@ -498,16 +490,14 @@ void FW_UPG_YM_Task(void *arg)
 
 /*******************************************************************
 ** 函数名	: ymodem_recv_byte
-** 函数描述	: 接收一个字节并驱动组包状态机，
-**			: 报文头查注册派发，报文完整后校验处理。
+** 函数描述	: 接收一个字节并驱动组包状态机，报文完整后校验处理。
 ** 参数		: [in] byte: 接收字节
 ** 返回		: 无
 ********************************************************************/
 static void ymodem_recv_byte(uint8_t byte)
 {
     s_rcb.last_rx_tick = osal_get_time_ms();
-    /* 取消/终止检测（对齐ST参考Receive_Packet，仅在报文头位置判定，
-       避免固件数据流中合法的连续0x18误杀） */
+    /* 取消检测，只在报文头位置判定 */
     if (s_rcb.state == YM_STATE_HEAD) {
         if (byte == YMODEM_CAN) {
             if (s_rcb.last_can != 0) {                                 /* 连续两个CAN才取消 */
@@ -518,7 +508,7 @@ static void ymodem_recv_byte(uint8_t byte)
             s_rcb.last_can = 1;
             return;
         }
-        if ((byte == 0x41) || (byte == 0x61)) {                        /* 'A'/'a'用户终止（ABORT1/ABORT2） */
+        if ((byte == 0x41) || (byte == 0x61)) {                        /* 'A'/'a'用户终止 */
             ymodem_abort_session();
             return;
         }
@@ -527,7 +517,7 @@ static void ymodem_recv_byte(uint8_t byte)
 
     switch (s_rcb.state) {
     case YM_STATE_HEAD:
-        /* 报文头派发启动组包，非协议字节忽略 */
+        /* 按报文头类型启动组包，非协议字节忽略 */
         if (byte == YMODEM_SOH) {
             ymodem_on_soh(byte);
         } else if (byte == YMODEM_STX) {

@@ -16,6 +16,7 @@
 
 #include "cJSON_Process.h"
 #include "../../Platform/drv_led/bsp_led.h"
+#include "../../FwUpgrade/fw_upgrade.h"   /* 升级中禁上报 */
 
 /******************************* 全局变量声明 ************************************/
 /*
@@ -45,7 +46,7 @@ void deliverMessage(MQTTString *TopicName,MQTTMessage *msg,MQTT_USER_MSG *mqtt_u
 uint8_t MQTT_Connect(void)
 {
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
-    /* token静态缓冲: 避免登录路径栈峰值(局部200B+组帧512B逼近任务栈极限) */
+    /* token静态缓冲，避免登录路径栈峰值 */
     static char token[ONENET_TOKEN_MAX_LEN];
     uint8_t buf[512];
     int buflen = sizeof(buf);
@@ -976,9 +977,13 @@ void mqtt_send(void *pvParameters)
         {
             if (report != NULL)
             {
-                /* 注意: lwIP第一个socket的fd是0, 必须用>=0判断,
-                 * 否则fd=0时所有上报都会被误丢弃 */
-                if (mqtt_is_connected() && MQTT_Socket >= 0)
+                /* 升级中禁上报 */
+                if (FW_UPG_GetState() != FW_UPG_STATE_IDLE)
+                {
+                    PRINT_DEBUG("firmware upgrading, drop report\n");
+                }
+                /* lwip首个socket fd=0，必须>=0判断 */
+                else if (mqtt_is_connected() && MQTT_Socket >= 0)
                 {
                     /* 按上报类型选择topic: 属性→property/post, 事件→event/post */
                     char *topic = (report->type == MQTT_REPORT_EVENT) ?

@@ -30,8 +30,12 @@
 #if APP_ENABLE_NTP
 #include "../Components/ntp/ntp_mmi.h"
 #endif
+#if APP_ENABLE_OTA
+#include "../Components/ota/ota_mmi.h"
+#include "../Components/mqtt/mqttclient.h"
+#endif
 
-/* Ymodem本地升级（UART3通道，与OTA分离） */
+/* Ymodem本地升级（UART3） */
 #include "../Platform/drv_uart/bsp_upgrade_usart.h"
 #include "../FwUpgrade/fw_upgrade.h"
 #include "../FwUpgrade/ymodem/ymodem.h"
@@ -44,9 +48,9 @@
 #include "../Tools/dwt_delay/core_delay.h"
 #include "lwip/netif.h"
 #include "lwip/ip_addr.h"
+#include "lwip/dns.h"
 #if APP_ENABLE_NTP
 #include "lwip/sockets.h"
-#include "lwip/dns.h"
 #endif
 #include "FreeRTOS.h"
 #include "task.h"
@@ -55,6 +59,9 @@
 
 #include <string.h>
 #include <stdio.h>
+
+/* FreeRTOS堆放入CCM RAM(0x10000000, 64KB)，heap_4.c应用侧定义 */
+uint8_t ucHeap[configTOTAL_HEAP_SIZE] __attribute__((section("CCM_RAM"), zero_init));
 
 /* 任务句柄 */
 static osal_task_t task_led;
@@ -72,7 +79,7 @@ static osal_task_t task_lcd;
 #endif
 #if APP_ENABLE_NTP
 static osal_task_t task_ntp;
-/* NTP任务收发缓冲（static避免占用任务栈，NTP任务单实例无重入问题） */
+/* NTP收发缓冲 */
 static uint8_t s_ntp_req[NTP_MMI_PACKET_SIZE];
 static uint8_t s_ntp_rsp[64];
 #endif
@@ -93,11 +100,12 @@ static osal_task_t task_monitor;
 /* 全局变量 */
 QueueHandle_t MQTT_Data_Queue = NULL;
 #if APP_ENABLE_CLOUD && APP_ENABLE_NTP
-static osal_sem_t s_ntp_sync_sem;   /* NTP同步完成信号量，Cloud任务等待其唤醒 */
+static osal_sem_t s_ntp_sync_sem;   /* NTP同步完成信号量 */
 #endif
 
 /* 外部函数声明 */
 extern void TCPIP_Init(void);
+extern volatile uint8_t g_lwip_ready;   /* sys_arch.c，DHCP+DNS预热完成后置1 */
 extern void BSP_Init(void);
 extern void vTaskStartScheduler(void);
 extern void vTaskDelete(void *);
@@ -298,19 +306,18 @@ static void Cloud_Task(void *pvParameters)
 
     (void)pvParameters;
 
-    /* 等待网络就绪（Net_Init_Task完成LwIP初始化且DHCP分配IP），
-     * 固定延时不可靠: DHCP耗时不定, 未就绪时DNS解析会拿到0.0.0.0 */
+    /* 等网络就绪：DHCP耗时不定，未就绪时DNS会解析出0.0.0.0 */
     DEBUG_INFO("Waiting for network...");
     while (!(netif_is_up(&gnetif) && !ip_addr_isany(&gnetif.ip_addr))) {
         osal_task_delay(500);
-        if (++wait_cnt >= 60) {  /* 最长等30s, 之后交给MQTT线程DNS重试兜底 */
+        if (++wait_cnt >= 60) {  /* 最长等30s，后面交给MQTT线程DNS重试 */
             DEBUG_WARN("Network not ready in 30s, start MQTT anyway");
             break;
         }
     }
 
 #if APP_ENABLE_NTP
-    /* 先等NTP时间同步完成再连接MQTT（超时兜底，避免NTP故障永久阻塞上报） */
+    /* 先等NTP同步再连MQTT */
     if (s_ntp_sync_sem != NULL) {
         DEBUG_INFO("Waiting for NTP time sync...");
         if (osal_sem_wait(s_ntp_sync_sem, APP_CLOUD_NTP_WAIT_MS) != OSAL_OK) {
@@ -319,7 +326,7 @@ static void Cloud_Task(void *pvParameters)
     }
 #endif
 
-    /* 启动MQTT收发线程（连接/重连由线程内部自理） */
+    /* 启动MQTT收发线程 */
     if (cloud_manager_connect() == 0) {
         DEBUG_INFO("Cloud manager started");
     } else {
@@ -498,9 +505,10 @@ static void NTP_Task(void *pvParameters)
 {
     (void)pvParameters;
 
-    /* 等待网络就绪：网卡已注册、链路up、IP已分配 */
+    /* 等待网络就绪：网卡已注册、链路up、IP已分配、DNS预热完成 */
     while (netif_default == NULL || !netif_is_up(netif_default) ||
-           ip4_addr_isany_val(*netif_ip4_addr(netif_default))) {
+           ip4_addr_isany_val(*netif_ip4_addr(netif_default)) ||
+           !g_lwip_ready) {
         osal_task_delay(1000);
     }
     DEBUG_INFO("NTP: network ready, start time sync");
@@ -555,7 +563,7 @@ static void NTP_Task(void *pvParameters)
                 if (rlen > 0) {
                     if (NTP_MMI_ParseReply(s_ntp_rsp, rlen, &unix_ts) == 0) {
                         NTP_MMI_SetTime(unix_ts);
-                        /* 北京时间(UTC+8)写入RTC，掉电后由备份域保持 */
+                        /* 北京时间(UTC+8)写入RTC */
                         drv_rtc_set_unix(unix_ts + 8 * 3600);
                         ret = 0;
                     } else {
@@ -570,15 +578,14 @@ static void NTP_Task(void *pvParameters)
         close(fd);
 
         if (ret == 0) {
-            /* 同步成功，唤醒等待的Cloud任务并进入周期校时 */
+            /* 同步成功：唤醒Cloud任务，删除本任务释放链路与任务栈 */
 #if APP_ENABLE_CLOUD
             if (s_ntp_sync_sem != NULL) {
                 osal_sem_post(s_ntp_sync_sem);
             }
 #endif
-            DEBUG_INFO("NTP: sync success, next in %d s",
-                       APP_NTP_SYNC_PERIOD_MS / 1000);
-            osal_task_delay(APP_NTP_SYNC_PERIOD_MS);
+            DEBUG_INFO("NTP: sync success, socket released, task exit");
+            osal_task_delete(task_ntp);
         } else {
             DEBUG_INFO("NTP: reply timeout, retry in %d s",
                        APP_NTP_RETRY_MS / 1000);
@@ -598,11 +605,20 @@ static void NTP_Task(void *pvParameters)
 *******************************************************************************/
 static void OTA_Task(void *pvParameters)
 {
+    uint8_t last_conn = 0;
+
     (void)pvParameters;
 
     while (1) {
-        /* OTA升级处理 */
-        osal_task_delay(10000);
+        uint8_t conn = mqtt_is_connected();
+
+        /* 上线触发一轮OTA */
+        if (conn && !last_conn) {
+            DEBUG_INFO("[OTA] cloud online, start upgrade check");
+            ota_task_proc();
+        }
+        last_conn = conn;
+        osal_task_delay(1000);
     }
 }
 #endif
@@ -647,6 +663,30 @@ static void Net_Init_Task(void *pvParameters)
     TCPIP_Init();
     DEBUG_INFO("LWIP initialized");
 
+#if APP_ENABLE_NTP || APP_ENABLE_CLOUD || APP_ENABLE_OTA
+    /* DNS预热：把三个域名首查消耗在开机阶段，避开路由器代理丢包 */
+    {
+        static const char *hosts[] = {
+            APP_NTP_SERVER,
+            "mqtts.heclouds.com",   /* 与mqttclient.h的HOST_NAME一致 */
+            APP_OTA_HOST
+        };
+        ip_addr_t dns_ip;
+        int h, try;
+
+        for (h = 0; h < 3; h++) {
+            for (try = 0; try < 3; try++) {
+                if (dns_gethostbyname(hosts[h], &dns_ip, NULL, NULL) == ERR_OK &&
+                    !ip_addr_isany(&dns_ip)) {
+                    break;
+                }
+                osal_task_delay(1000);
+            }
+        }
+    }
+#endif
+    g_lwip_ready = 1;
+
     /* 删除自身任务 */
     vTaskDelete(NULL);
 }
@@ -672,7 +712,7 @@ int main(void)
     /* 初始化驱动管理器 */
     drv_manager_init();
     
-    /* 初始化各驱动模块（drv_sensor_init由sensor_manager_init内部调用） */
+    /* 初始化各驱动模块 */
     drv_led_init();
     drv_camera_init();
     drv_lcd_init();

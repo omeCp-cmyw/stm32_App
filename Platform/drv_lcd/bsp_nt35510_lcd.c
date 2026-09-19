@@ -190,7 +190,12 @@ static void NT35510_FSMC_Config ( void )
 	hsram.Init.ContinuousClock    = FSMC_CONTINUOUS_CLOCK_SYNC_ONLY;
 
 	/* 初始化FMC Bank1-NORSRAM3，并使能 */
-	HAL_SRAM_Init ( & hsram, & readWriteTiming, NULL );
+	(void)HAL_SRAM_Init ( & hsram, & readWriteTiming, NULL );
+
+	/* LL库位域是F1布局会写错，按F407位域手工修正Bank3 */
+	FSMC_Bank1->BTCR[4] = FSMC_BCR1_MBKEN | FSMC_BCR1_FACCEN |
+	                    FSMC_BCR1_MWID_0 | FSMC_BCR1_WREN;
+	FSMC_Bank1->BTCR[5] = (0x04U << 8U) | 0x0BU | FSMC_BTR1_ACCMOD_1;
 
 }
 
@@ -202,19 +207,15 @@ static void NT35510_FSMC_Config ( void )
   */
 static void NT35510_REG_Config ( void )
 {	
-	printf("[LCD] reg1 rst...\r\n");
 	//NT35510初始化序列
 	// 1. 硬件复位
 	NT35510_Rst();
-	printf("[LCD] reg1 rst done\r\n");
-	printf("[LCD] BCR3=0x%08X BTR3=0x%08X\r\n",
-	       (unsigned)FSMC_Bank1->BTCR[6], (unsigned)FSMC_Bank1->BTCR[7]);
 	
 	// 2. 发送初始化序列（NT35510-HSD43 4.3寸序列）
 	///NT35510-HSD43
 	//PAGE1
-	NT35510_Write_Cmd(0xF000);    NT35510_Write_Data(0x0055);
-	printf("[LCD] first write ok\r\n");
+	NT35510_Write_Cmd(0xF000);
+	NT35510_Write_Data(0x0055);
 	NT35510_Write_Cmd(0xF001);    NT35510_Write_Data(0x00AA);
 	NT35510_Write_Cmd(0xF002);    NT35510_Write_Data(0x0052);
 	NT35510_Write_Cmd(0xF003);    NT35510_Write_Data(0x0008);
@@ -673,15 +674,12 @@ static void NT35510_REG_Config ( void )
 	NT35510_Write_Cmd(0x3A00);    NT35510_Write_Data(0x0006);
 
 	NT35510_Write_Cmd(0x3A00);    NT35510_Write_Data(0x0055);
-	printf("[LCD] reg2 seq done\r\n");
 	//Sleep out
 	NT35510_Write_Cmd(0x1100);
 	Delay(0xFFFFFF);
-	printf("[LCD] reg3 sleep-out done\r\n");
 
 	//Display on
 	NT35510_Write_Cmd(0x2900);
-	printf("[LCD] reg4 display-on done\r\n");
 	
 	// 3. 设置默认扫描方向
 	NT35510_GramScan(LCD_SCAN_MODE);
@@ -701,20 +699,16 @@ static void NT35510_REG_Config ( void )
   */
 void NT35510_Init ( void )
 {
-	printf("[LCD] step1 GPIO config...\r\n");
 	NT35510_GPIO_Config ();
-	printf("[LCD] step2 FSMC config...\r\n");
 	NT35510_FSMC_Config ();
-	printf("[LCD] step3 REG config...\r\n");
 	NT35510_REG_Config ();
-	printf("[LCD] step4 scan/clear...\r\n");
 	
 	//设置默认扫描方向，其中6模式为大部分液晶例程的默认显示方向  
 	NT35510_GramScan(LCD_SCAN_MODE);
     
 	NT35510_Clear(0,0,LCD_X_LENGTH,LCD_Y_LENGTH);	/* 清屏，显示全黑 */
 	NT35510_BackLed_Control ( ENABLE );      //点亮LCD背光
-	printf("[LCD] step5 init done\r\n");
+	printf("[LCD] init ok\r\n");
 }
 
 

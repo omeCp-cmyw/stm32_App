@@ -3,7 +3,7 @@
 ** 文件名:     drv_rtc.c
 ** 版权所有:   无
 ** 文件描述:   RTC实时时钟驱动
-**             LSE优先，启动超时自动降级LSI；
+**             固定LSI时钟源；
 **             备份寄存器DR0存初始化标志、DR1存时间有效标志
 **
 *********************************************************************************/
@@ -17,8 +17,6 @@
 #define RTC_BKP_DATA            0x32F2
 
 static RTC_HandleTypeDef hrtc;
-
-/* LSE启动超时次数：使用stm32f4xx_hal_conf.h中的LSE_STARTUP_TIMEOUT */
 
 /*******************************************************************************
 ** 函数名称    RtcWeekDayCalc
@@ -74,15 +72,14 @@ static void RtcDaysToDate(int32_t days, uint16_t *year, uint8_t *month, uint8_t 
 
 /*******************************************************************************
 ** 函数名称    drv_rtc_init
-** 函数说明    初始化RTC：LSE优先超时降级LSI，配置1Hz分频
+** 函数说明    初始化RTC：固定LSI时钟源，配置1Hz分频
 ** 输入参数    无
 ** 输出参数    无
 ** 返回参数    0: 成功, -1: 失败
 *******************************************************************************/
 int drv_rtc_init(void)
 {
-    __IO uint16_t startup = 0;
-    FlagStatus lse_status = RESET;
+    uint8_t reinit = 0;
 
     /* 使能PWR时钟与备份域访问 */
     __HAL_RCC_PWR_CLK_ENABLE();
@@ -90,34 +87,47 @@ int drv_rtc_init(void)
 
     hrtc.Instance = RTC;
 
-    /* 已初始化（备份域保持），直接返回避免丢时间 */
+    /* 已初始化（备份域保持） */
     if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0) == RTC_BKP_DATA) {
-        printf("[DRV_RTC] RTC already initialized, keep time\r\n");
-        return 0;
+        RTC_TimeTypeDef bkTime;
+        RTC_DateTypeDef bkDate;
+        uint8_t valid;
+
+        if ((RCC->BDCR & RCC_BDCR_RTCSEL) != RCC_RTCCLKSOURCE_LSI) {
+            /* 时钟源非LSI：RTCEN后RTCSEL不可改，复位备份域重建 */
+            reinit = 1;
+        } else if (READ_BIT(RCC->CSR, RCC_CSR_LSION) == 0U) {
+            /* LSI使能位在VDD域，掉电后复位，重新使能后RTC恢复走时 */
+            __HAL_RCC_LSI_ENABLE();
+            while (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY) == RESET) {
+            }
+            printf("[DRV_RTC] LSI re-enabled, keep time\r\n");
+        } else {
+            printf("[DRV_RTC] RTC already initialized, keep time\r\n");
+        }
+
+        if (!reinit) {
+            valid = (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) == RTC_BKP_DATA) ? 1 : 0;
+            HAL_RTC_GetTime(&hrtc, &bkTime, RTC_FORMAT_BIN);
+            HAL_RTC_GetDate(&hrtc, &bkDate, RTC_FORMAT_BIN);
+            printf("[DRV_RTC] time valid=%d\r\n", valid);
+            printf("[DRV_RTC] backup time: %04u-%02u-%02u %02u:%02u:%02u\r\n",
+                   2000u + bkDate.Year, bkDate.Month, bkDate.Date,
+                   bkTime.Hours, bkTime.Minutes, bkTime.Seconds);
+            return 0;
+        }
+    } else {
+        reinit = 1;
     }
 
-    /* 首次初始化：复位备份域 */
+    /* 首次初始化或异常恢复：复位备份域后固定用LSI */
     __HAL_RCC_BACKUPRESET_FORCE();
     __HAL_RCC_BACKUPRESET_RELEASE();
 
-    /* LSE优先，超时降级LSI */
-    __HAL_RCC_LSE_CONFIG(RCC_LSE_ON);
-    do {
-        lse_status = (FlagStatus)__HAL_RCC_GET_FLAG(RCC_FLAG_LSERDY);
-        startup++;
-    } while ((lse_status == RESET) && (startup != LSE_STARTUP_TIMEOUT));
-
-    if (lse_status == SET) {
-        printf("[DRV_RTC] LSE startup success\r\n");
-        __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSE);
-    } else {
-        printf("[DRV_RTC] LSE fail, fallback to LSI\r\n");
-        __HAL_RCC_LSI_ENABLE();
-        while (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY) == RESET) {
-        }
-        __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSI);
+    __HAL_RCC_LSI_ENABLE();
+    while (__HAL_RCC_GET_FLAG(RCC_FLAG_LSIRDY) == RESET) {
     }
-
+    __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSI);
     __HAL_RCC_RTC_ENABLE();
 
     /* 1Hz分频：32768/[(127+1)*(255+1)] */
@@ -185,9 +195,11 @@ int drv_rtc_set_unix(uint32_t unix_ts)
     sDate.Year = (uint8_t)(year - 2000);
 
     if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK) {
+        printf("[DRV_RTC] set time fail\r\n");
         return -1;
     }
     if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK) {
+        printf("[DRV_RTC] set date fail\r\n");
         return -1;
     }
 

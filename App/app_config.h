@@ -11,20 +11,21 @@
 #define __APP_CONFIG_H
 
 #include <stdint.h>
+#include "../Config/version.h"
 
 /* 应用任务使能开关 */
 #define APP_ENABLE_LED              1   /* 使能LED闪烁任务 */
 #define APP_ENABLE_NET_DEBUG        0   /* 使能网络调试任务 */
 #define APP_ENABLE_MONITOR          1   /* 使能系统监控任务 */
 
-/* 第二阶段任务使能开关（组件层已实现，传感器与云平台默认开启） */
+/* 第二阶段任务使能开关（传感器与云平台默认开启） */
 #define APP_ENABLE_SENSOR           1   /* 使能传感器采集任务 */
 #define APP_ENABLE_CLOUD            1   /* 使能云平台通信任务 */
 #define APP_ENABLE_CAMERA           0   /* 使能摄像头任务 */
 #define APP_ENABLE_LCD              1   /* 使能LCD显示任务 */
 #define APP_ENABLE_NTP              1   /* 使能NTP时间同步任务 */
-#define APP_ENABLE_OTA              0   /* 使能OTA升级任务 */
-#define APP_ENABLE_YMODEM           1   /* 使能Ymodem本地升级（UART3通道，与OTA分离） */
+#define APP_ENABLE_OTA              1   /* 使能OTA升级任务 */
+#define APP_ENABLE_YMODEM           1   /* 使能Ymodem本地升级（UART3） */
 
 /* LED闪烁任务配置 */
 #define APP_LED_TOGGLE_PERIOD_MS    500     /* LED翻转周期(ms) */
@@ -51,6 +52,11 @@
 #define APP_NTP_PORT                123                 /* NTP服务端口 */
 #define APP_NTP_RECV_TIMEOUT_MS     3000                /* 单次应答等待超时(ms) */
 #define APP_NTP_RETRY_MS            10000               /* 失败重试间隔(ms) */
-#define APP_NTP_SYNC_PERIOD_MS      3600000             /* 同步成功后周期校时间隔(ms) */
+
+/* OTA远程升级任务配置（OneNET fuse-ota HTTP协议） */
+#define APP_OTA_HOST                "iot-api.heclouds.com"  /* OTA服务器域名 */
+#define APP_OTA_CHUNK_SIZE          1024                /* 固件分片下载字节数 */
+#define APP_OTA_TIMEOUT_MS          15000               /* socket收发超时(ms) */
+#define APP_OTA_RETRY               3                   /* 单片下载失败重试次数 */
 
 #endif /* __APP_CONFIG_H */

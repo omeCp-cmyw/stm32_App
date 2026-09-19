@@ -44,7 +44,7 @@ int sensor_manager_init(void)
         return -1;
     }
 
-    /* 创建缓存互斥锁（保护最新数据读写一致性） */
+    /* 创建缓存互斥锁 */
     g_latest_mutex = osal_mutex_create();
     if (g_latest_mutex == NULL) {
         DEBUG_ERROR("[SENSOR_MANAGER] Mutex create failed");

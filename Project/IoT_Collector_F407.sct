@@ -1,0 +1,26 @@
+; *************************************************************
+; *** Scatter-Loading Description File for STM32F407ZG ***
+; *************************************************************
+; IROM1:  app flash region (0x08020000-0x0807FFFF, bootloader at 0x08000000)
+; IRAM1:  internal SRAM 128KB (0x20000000-0x2001FFFF)
+; CCMRAM: core coupled memory 64KB (0x10000000-0x1000FFFF)
+;         CPU-only access (DMA cannot reach it): FreeRTOS heap etc.
+; NOTE:   RW_CCMRAM must appear BEFORE RW_IRAM1, otherwise the
+;         .ANY (+RW +ZI) selector of RW_IRAM1 grabs the CCM_RAM
+;         section first.
+; *************************************************************
+
+LR_IROM1 0x08020000 0x00060000  {    ; load region size_region
+  ER_IROM1 0x08020000 0x00060000  {  ; load address = execution address
+   *.o (RESET, +First)
+   *(InRoot$$Sections)
+   .ANY (+RO)
+   .ANY (+XO)
+  }
+  RW_CCMRAM 0x10000000 0x00010000  { ; CCM data (CPU only, before IRAM1)
+   *(CCM_RAM)
+  }
+  RW_IRAM1 0x20000000 0x00020000  {  ; RW data
+   .ANY (+RW +ZI)
+  }
+}

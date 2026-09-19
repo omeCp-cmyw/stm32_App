@@ -30,7 +30,7 @@
 #define UPGRADE_USART_IRQHandler                USART3_IRQHandler
 
 /* 接收环形缓冲容量：容纳Ymodem 1K包的1029字节并留余量 */
-#define UPGRADE_USART_RX_BUF_SIZE               2048
+#define UPGRADE_USART_RX_BUF_SIZE               1280
 
 void UPGRADE_USART_Config(void);
 void UPGRADE_USART_IrqProcess(void);

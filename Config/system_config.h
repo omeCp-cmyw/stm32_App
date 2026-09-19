@@ -11,6 +11,7 @@
 #define __SYSTEM_CONFIG_H
 
 #include <stdint.h>
+#include "version.h"
 
 /* APP运行地址配置 */
 #define APP_START_ADDR              0x08020000
@@ -51,11 +52,6 @@
 
 /* 调试串口配置 */
 #define DEBUG_USART_BAUDRATE        115200
-
-/* 系统版本信息 */
-#define SYSTEM_VERSION              "V1.0.0"
-#define HARDWARE_VERSION            "V1.0.0"
-#define SOFTWARE_VERSION            "V1.0.0"
 
 /* 系统功能开关 */
 #define ENABLE_CLOUD                1   /* 使能云平台功能 */
